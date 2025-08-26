@@ -1,11 +1,10 @@
-
 import type { Chat, Document, Project } from '../types';
 
 const PROJECTS_KEY = 'gemini_research_projects';
 const CHATS_KEY = 'gemini_research_chats';
 const DOCUMENTS_KEY = 'gemini_research_documents';
 
-// --- Private Helper Functions ---
+// --- Helper Functions ---
 
 export const getAllChats = (): Chat[] => {
   try {

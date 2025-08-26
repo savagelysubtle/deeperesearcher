@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import type { Chat, Document, Project } from '../types';
 import { FileUploader } from './FileUploader';
@@ -189,14 +188,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
           <h1 className="text-xl font-bold text-white whitespace-nowrap">Deep Research</h1>
           <div className="flex items-center gap-2">
               <button
-                  onClick={onNewChat}
-                  className="p-2 rounded-md hover:bg-gray-700 transition-colors"
-                  aria-label="New Chat"
-                  title="New Chat"
-              >
-                  <PlusIcon />
-              </button>
-               <button
                   onClick={onRerunTour}
                   className="p-2 rounded-md hover:bg-gray-700 transition-colors"
                   aria-label="Help / Rerun Onboarding Tour"
@@ -231,9 +222,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
                   className="relative group"
                   onDragOver={(e) => {
                     // Check if the dragged item is a chat to provide drop feedback
-                    if (e.dataTransfer.types.includes('application/x-chat-id')) {
-                        e.preventDefault();
-                        setDropTargetProjectId(project.id);
+                    if (e.dataTransfer.types.includes('application/x-chat-id') && draggedChatId) {
+                        const chatBeingDragged = chats.find(c => c.id === draggedChatId);
+                        if (chatBeingDragged && chatBeingDragged.projectId !== project.id) {
+                            e.preventDefault();
+                            setDropTargetProjectId(project.id);
+                        }
                     }
                   }}
                   onDragLeave={() => {
@@ -283,7 +277,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
           
           {/* Chats Section */}
           <div className="p-4">
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 whitespace-nowrap">Chats</h2>
+             <div className="flex justify-between items-center mb-2">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Chats</h2>
+                <button onClick={onNewChat} className="p-1 rounded-md hover:bg-gray-700" aria-label="New Chat">
+                    <PlusIcon />
+                </button>
+            </div>
             <ul>
               {chats.map((chat) => (
                 <li

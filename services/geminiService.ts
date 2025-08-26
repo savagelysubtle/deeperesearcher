@@ -117,15 +117,16 @@ export const embedText = async (texts: string[]): Promise<number[][]> => {
             const embeddingPromises = batchTexts.map(text =>
                 ai.models.embedContent({
                     model: embeddingModel,
-                    // FIX: Corrected property name from 'content' to 'contents' as per EmbedContentParameters type.
-                    contents: {
+                    // FIX: The property for embedContent parameters is 'contents', not 'content'.
+                    // The `contents` property expects an array of Content objects.
+                    contents: [{
                         parts: [{ text }],
-                    },
+                    }],
                 })
             );
             const responses = await Promise.all(embeddingPromises);
-            // FIX: Corrected property name from 'embedding' to 'embeddings' as per EmbedContentResponse type.
-            const embeddings = responses.map(res => res.embeddings.values);
+            // FIX: The property on EmbedContentResponse is 'embedding', singular.
+            const embeddings = responses.map(res => res.embedding.values);
             allEmbeddings.push(...embeddings);
         } catch (error) {
             console.error("Error embedding batch:", error);

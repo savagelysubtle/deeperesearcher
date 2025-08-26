@@ -244,14 +244,20 @@ const App: React.FC = () => {
   };
 
   const handleDeleteChat = (chatId: string) => {
-    const updatedChats = chats.filter(c => c.id !== chatId);
-    setChats(updatedChats);
+    // First, perform the delete operation on the persistent storage.
     dbDeleteChat(chatId);
 
+    // Then, get the updated list of chats for the current project from the source of truth.
+    const remainingChats = getChats(activeProjectId!);
+    setChats(remainingChats);
+
+    // Finally, handle the logic for the active chat.
     if (activeChatId === chatId) {
-      if (updatedChats.length > 0) {
-        setActiveChatId(updatedChats[0].id);
+      if (remainingChats.length > 0) {
+        // If chats remain, set the first one as active.
+        setActiveChatId(remainingChats[0].id);
       } else {
+        // If no chats are left, create a new one.
         handleNewChat();
       }
     }
