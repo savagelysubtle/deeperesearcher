@@ -129,8 +129,8 @@ export const embedText = async (texts: string[]): Promise<number[][]> => {
 
         results.forEach((result, index) => {
             if (result.status === 'fulfilled') {
-                // FIX: Property 'embedding' does not exist on type 'EmbedContentResponse'. The error suggests 'embeddings'.
-                const embedding = result.value.embedding.values;
+                // Fix: Corrected property access for embedding response based on the provided error message.
+                const embedding = result.value.embeddings.values;
                 allEmbeddings.push(embedding);
             } else {
                 // Log granular error for the failed chunk without stopping the entire process.

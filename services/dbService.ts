@@ -1,4 +1,6 @@
+
 import type { Chat, Document, Project } from '../types';
+import { deleteCollection as deleteVectorCollection } from './vectorDBService';
 
 const PROJECTS_KEY = 'gemini_research_projects';
 const CHATS_KEY = 'gemini_research_chats';
@@ -24,23 +26,42 @@ const saveAllChats = (chats: Chat[]): void => {
   }
 };
 
-const getAllDocuments = (): Document[] => {
+const getDocumentsByProject = (): Record<string, Document[]> => {
   try {
     const docsJson = localStorage.getItem(DOCUMENTS_KEY);
-    return docsJson ? JSON.parse(docsJson) : [];
+    if (!docsJson) return {};
+    
+    const data = JSON.parse(docsJson);
+    
+    // Migration for users with old data structure (flat array)
+    if (Array.isArray(data)) {
+      console.log("Migrating documents to new project-based structure.");
+      const migratedData: Record<string, Document[]> = {};
+      (data as Document[]).forEach(doc => {
+        if (!migratedData[doc.projectId]) {
+          migratedData[doc.projectId] = [];
+        }
+        migratedData[doc.projectId].push(doc);
+      });
+      localStorage.setItem(DOCUMENTS_KEY, JSON.stringify(migratedData));
+      return migratedData;
+    }
+    
+    return data;
   } catch (error) {
     console.error('Failed to parse documents from localStorage', error);
-    return [];
+    return {};
   }
 };
 
-const saveAllDocuments = (documents: Document[]): void => {
+const saveDocumentsByProject = (documents: Record<string, Document[]>): void => {
     try {
         localStorage.setItem(DOCUMENTS_KEY, JSON.stringify(documents));
     } catch (error) {
         console.error('Failed to save all documents to localStorage', error);
     }
 };
+
 
 // --- Project Functions ---
 
@@ -75,7 +96,7 @@ export const saveProject = (projectToSave: Project): void => {
   }
 };
 
-export const deleteProject = (projectId: string): void => {
+export const deleteProject = async (projectId: string): Promise<void> => {
   // Delete the project itself
   const projects = getProjects();
   const updatedProjects = projects.filter((p) => p.id !== projectId);
@@ -90,10 +111,13 @@ export const deleteProject = (projectId: string): void => {
   const chatsToKeep = allChats.filter((chat) => chat.projectId !== projectId);
   saveAllChats(chatsToKeep);
 
-  // Cascade delete associated documents
-  const allDocuments = getAllDocuments();
-  const documentsToKeep = allDocuments.filter((doc) => doc.projectId !== projectId);
-  saveAllDocuments(documentsToKeep);
+  // Cascade delete associated documents from localStorage
+  const allDocuments = getDocumentsByProject();
+  delete allDocuments[projectId];
+  saveDocumentsByProject(allDocuments);
+  
+  // Cascade delete vector store collection
+  await deleteVectorCollection(projectId);
 };
 
 
@@ -128,18 +152,41 @@ export const deleteChat = (chatId: string): void => {
 // --- Document Functions ---
 
 export const getDocuments = (projectId: string): Document[] => {
-  const allDocuments = getAllDocuments();
-  return allDocuments.filter(doc => doc.projectId === projectId);
+  const allDocsByProject = getDocumentsByProject();
+  return allDocsByProject[projectId] || [];
 };
 
 export const saveDocument = (docToSave: Document): void => {
-  const documents = getAllDocuments();
-  const updatedDocuments = [...documents, docToSave];
-  saveAllDocuments(updatedDocuments);
+  const allDocsByProject = getDocumentsByProject();
+  const projectDocs = allDocsByProject[docToSave.projectId] || [];
+  
+  const existingIndex = projectDocs.findIndex(d => d.id === docToSave.id);
+  if (existingIndex > -1) {
+    projectDocs[existingIndex] = docToSave;
+  } else {
+    projectDocs.unshift(docToSave);
+  }
+
+  allDocsByProject[docToSave.projectId] = projectDocs;
+  saveDocumentsByProject(allDocsByProject);
 };
 
 export const deleteDocument = (docId: string): void => {
-  const documents = getAllDocuments();
-  const updatedDocuments = documents.filter(doc => doc.id !== docId);
-  saveAllDocuments(updatedDocuments);
+  const allDocsByProject = getDocumentsByProject();
+  let wasDeleted = false;
+  for (const projectId in allDocsByProject) {
+    const originalCount = allDocsByProject[projectId].length;
+    allDocsByProject[projectId] = allDocsByProject[projectId].filter(doc => doc.id !== docId);
+    if (allDocsByProject[projectId].length < originalCount) {
+      if(allDocsByProject[projectId].length === 0){
+        delete allDocsByProject[projectId];
+      }
+      wasDeleted = true;
+      break;
+    }
+  }
+
+  if (wasDeleted) {
+    saveDocumentsByProject(allDocsByProject);
+  }
 };

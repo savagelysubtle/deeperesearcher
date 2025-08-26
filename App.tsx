@@ -72,15 +72,19 @@ const App: React.FC = () => {
     }
   };
   
-  const handleDeleteProject = (projectId: string) => {
+  const handleDeleteProject = async (projectId: string) => {
+    // First, perform the delete operation on the persistent storage. This is now async.
+    await dbDeleteProject(projectId);
+    
+    // Then, update the component's state by filtering the existing projects array.
     const updatedProjects = projects.filter(p => p.id !== projectId);
     setProjects(updatedProjects);
-    dbDeleteProject(projectId);
 
     if (activeProjectId === projectId) {
       if (updatedProjects.length > 0) {
         setActiveProjectId(updatedProjects[0].id);
       } else {
+        // handleNewProject creates a new project and sets it as active.
         handleNewProject();
       }
     }

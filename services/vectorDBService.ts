@@ -130,3 +130,18 @@ export const queryCollection = async (
     return { chunks: [], metadatas: [] }; // Return empty on failure
   }
 };
+
+/**
+ * Deletes a ChromaDB collection associated with a project.
+ * @param projectId - The ID of the project whose collection should be deleted.
+ */
+export const deleteCollection = async (projectId: string): Promise<void> => {
+  const sanitizedName = `proj-${projectId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  try {
+    await client.deleteCollection({ name: sanitizedName });
+  } catch (error) {
+    // ChromaDB may throw an error if the collection doesn't exist, which is acceptable.
+    // We can log it but not re-throw, as the end state (collection is gone) is achieved.
+    console.warn(`Could not delete ChromaDB collection '${sanitizedName}'. It might not have existed.`, error);
+  }
+};
