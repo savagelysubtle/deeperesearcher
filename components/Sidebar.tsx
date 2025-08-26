@@ -1,8 +1,18 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import type { Chat, Document } from '../types';
+import type { Chat, Document, Project } from '../types';
 import { FileUploader } from './FileUploader';
 
 interface SidebarProps {
+  // Projects
+  projects: Project[];
+  activeProjectId: string | null;
+  onNewProject: () => void;
+  onSelectProject: (projectId: string) => void;
+  onRenameProject: (projectId: string, newName: string) => void;
+  onDeleteProject: (projectId: string) => void;
+
+  // Chats & Docs (for active project)
   chats: Chat[];
   documents: Document[];
   activeChatId: string | null;
@@ -13,6 +23,13 @@ interface SidebarProps {
   activeDocumentIds: string[];
   onRenameChat: (chatId: string, newTitle: string) => void;
   onDeleteChat: (chatId: string) => void;
+  
+  // Document Synthesis
+  selectedDocIds: string[];
+  onToggleDocumentSelection: (docId: string) => void;
+  onDocumentSynthesis: () => void;
+
+  // Style
   style?: React.CSSProperties;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
@@ -29,6 +46,12 @@ const ChatIcon: React.FC = () => (
     <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm14 1a1 1 0 00-1-1H5a1 1 0 00-1 1v5l3.293-3.293a1 1 0 011.414 0L15 11.586V6z" />
     <path d="M15 9a1 1 0 11-2 0 1 1 0 012 0z" />
   </svg>
+);
+
+const ProjectIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
 );
 
 const DocIcon: React.FC = () => (
@@ -51,54 +74,83 @@ const CollapseIcon: React.FC = () => (
 );
 
 
-export const Sidebar: React.FC<SidebarProps> = ({ chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, style, isCollapsed, onToggleCollapse }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, style, isCollapsed, onToggleCollapse }) => {
   const [draggedDocId, setDraggedDocId] = useState<string | null>(null);
+  
+  // State for renaming/menu for Projects
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [renamedProjectName, setRenamedProjectName] = useState('');
+  const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+
+  // State for renaming/menu for Chats
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
-  const [renamedTitle, setRenamedTitle] = useState('');
+  const [renamedChatTitle, setRenamedChatTitle] = useState('');
   const [menuChatId, setMenuChatId] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const chatMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(event.target as Node)) {
+        setMenuProjectId(null);
+      }
+      if (chatMenuRef.current && !chatMenuRef.current.contains(event.target as Node)) {
         setMenuChatId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleRenameStart = (chat: Chat) => {
+  // --- Project Handlers ---
+  const handleProjectRenameStart = (project: Project) => {
+    setEditingProjectId(project.id);
+    setRenamedProjectName(project.name);
+    setMenuProjectId(null);
+  };
+  const handleProjectRenameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingProjectId) onRenameProject(editingProjectId, renamedProjectName);
+    setEditingProjectId(null);
+  };
+  const handleProjectRenameBlur = () => {
+    if (editingProjectId) onRenameProject(editingProjectId, renamedProjectName);
+    setEditingProjectId(null);
+  };
+  const handleProjectDelete = (projectId: string) => {
+    if (window.confirm('Are you sure you want to delete this project and all its chats and documents? This action cannot be undone.')) {
+        onDeleteProject(projectId);
+    }
+    setMenuProjectId(null);
+  };
+  const toggleProjectMenu = (e: React.MouseEvent, projectId: string) => {
+    e.stopPropagation();
+    setMenuProjectId(prev => (prev === projectId ? null : projectId));
+  };
+
+
+  // --- Chat Handlers ---
+  const handleChatRenameStart = (chat: Chat) => {
     setEditingChatId(chat.id);
-    setRenamedTitle(chat.title);
+    setRenamedChatTitle(chat.title);
     setMenuChatId(null);
   };
-
-  const handleRenameSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleChatRenameSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (editingChatId) {
-      onRenameChat(editingChatId, renamedTitle);
-    }
+    if (editingChatId) onRenameChat(editingChatId, renamedChatTitle);
     setEditingChatId(null);
   };
-  
-  const handleRenameBlur = () => {
-    if (editingChatId) {
-      onRenameChat(editingChatId, renamedTitle);
-    }
+  const handleChatRenameBlur = () => {
+    if (editingChatId) onRenameChat(editingChatId, renamedChatTitle);
     setEditingChatId(null);
   }
-
-  const handleDelete = (chatId: string) => {
+  const handleChatDelete = (chatId: string) => {
     if (window.confirm('Are you sure you want to delete this chat? This action cannot be undone.')) {
         onDeleteChat(chatId);
     }
     setMenuChatId(null);
   };
-  
-  const toggleMenu = (e: React.MouseEvent, chatId: string) => {
+  const toggleChatMenu = (e: React.MouseEvent, chatId: string) => {
       e.stopPropagation();
       setMenuChatId(prev => (prev === chatId ? null : chatId));
   };
@@ -129,6 +181,49 @@ export const Sidebar: React.FC<SidebarProps> = ({ chats, documents, activeChatId
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
+        {/* Projects Section */}
+        <div className="p-4 border-b border-gray-700">
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Projects</h2>
+            <button onClick={onNewProject} className="p-1 rounded-md hover:bg-gray-700" aria-label="New Project">
+              <PlusIcon />
+            </button>
+          </div>
+          <ul>
+            {projects.map((project) => (
+              <li key={project.id} className="relative group">
+                <div
+                  onClick={() => editingProjectId !== project.id && onSelectProject(project.id)}
+                  className={`w-full text-left p-2 rounded-md flex items-center gap-3 transition-colors cursor-pointer ${
+                    activeProjectId === project.id ? 'bg-blue-600' : 'hover:bg-gray-700'
+                  } ${editingProjectId === project.id ? 'bg-gray-700 ring-2 ring-blue-500' : ''}`}
+                >
+                  <ProjectIcon />
+                  {editingProjectId === project.id ? (
+                    <form onSubmit={handleProjectRenameSubmit} className="flex-1">
+                      <input type="text" value={renamedProjectName} onChange={(e) => setRenamedProjectName(e.target.value)} onBlur={handleProjectRenameBlur} autoFocus className="w-full bg-transparent outline-none text-white text-sm" />
+                    </form>
+                  ) : (
+                    <span className="truncate flex-1 text-sm">{project.name}</span>
+                  )}
+                  {editingProjectId !== project.id && (
+                     <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+                         <button onClick={(e) => toggleProjectMenu(e, project.id)} className="p-1 rounded-full hover:bg-gray-600"><KebabIcon /></button>
+                    </div>
+                  )}
+                </div>
+                {menuProjectId === project.id && (
+                  <div ref={projectMenuRef} className="absolute right-2 top-10 z-20 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 w-32">
+                    <button onClick={() => handleProjectRenameStart(project)} className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700">Rename</button>
+                    <button onClick={() => handleProjectDelete(project.id)} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700">Delete</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+        
+        {/* Chats Section */}
         <div className="p-4">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 whitespace-nowrap">Chats</h2>
           <ul>
@@ -145,15 +240,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ chats, documents, activeChatId
                 >
                   <ChatIcon />
                   {editingChatId === chat.id ? (
-                    <form onSubmit={handleRenameSubmit} className="flex-1">
-                      <input
-                        type="text"
-                        value={renamedTitle}
-                        onChange={(e) => setRenamedTitle(e.target.value)}
-                        onBlur={handleRenameBlur}
-                        autoFocus
-                        className="w-full bg-transparent outline-none text-white text-sm"
-                      />
+                    <form onSubmit={handleChatRenameSubmit} className="flex-1">
+                      <input type="text" value={renamedChatTitle} onChange={(e) => setRenamedChatTitle(e.target.value)} onBlur={handleChatRenameBlur} autoFocus className="w-full bg-transparent outline-none text-white text-sm" />
                     </form>
                   ) : (
                     <span className="truncate flex-1 text-sm">{chat.title}</span>
@@ -161,20 +249,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ chats, documents, activeChatId
 
                   {editingChatId !== chat.id && (
                      <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
-                         <button onClick={(e) => toggleMenu(e, chat.id)} className="p-1 rounded-full hover:bg-gray-600">
-                             <KebabIcon />
-                         </button>
+                         <button onClick={(e) => toggleChatMenu(e, chat.id)} className="p-1 rounded-full hover:bg-gray-600"><KebabIcon /></button>
                     </div>
                   )}
                 </div>
                 {menuChatId === chat.id && (
-                    <div ref={menuRef} className="absolute right-2 top-10 z-20 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 w-32">
-                        <button onClick={() => handleRenameStart(chat)} className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 flex items-center gap-2">
-                            Rename
-                        </button>
-                        <button onClick={() => handleDelete(chat.id)} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2">
-                            Delete
-                        </button>
+                    <div ref={chatMenuRef} className="absolute right-2 top-10 z-20 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 w-32">
+                        <button onClick={() => handleChatRenameStart(chat)} className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700">Rename</button>
+                        <button onClick={() => handleChatDelete(chat.id)} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700">Delete</button>
                     </div>
                 )}
               </li>
@@ -182,15 +264,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ chats, documents, activeChatId
           </ul>
         </div>
 
+        {/* Knowledge Base Section */}
         <div className="p-4 border-t border-gray-700">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 whitespace-nowrap">Knowledge Base</h2>
-          <FileUploader onUploadSuccess={onDocumentsUpdated} />
+          {activeProjectId && <FileUploader onUploadSuccess={onDocumentsUpdated} projectId={activeProjectId} />}
           <ul className="mt-4 space-y-1">
             {documents.map((doc) => (
               <li
                 key={doc.id}
                 draggable="true"
                 onDragStart={(e) => {
+                  if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') {
+                      e.preventDefault();
+                      return;
+                  }
                   e.dataTransfer.setData('application/x-document-id', doc.id);
                   e.dataTransfer.effectAllowed = 'copy';
                   setDraggedDocId(doc.id);
@@ -204,11 +291,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ chats, documents, activeChatId
                 onClick={() => onAttachDocument(doc.id)}
                 aria-label={`Attach ${doc.name} to chat`}
               >
+                <input 
+                  type="checkbox"
+                  checked={selectedDocIds.includes(doc.id)}
+                  onChange={() => onToggleDocumentSelection(doc.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-4 h-4 bg-gray-600 border-gray-500 rounded text-blue-500 focus:ring-blue-500 flex-shrink-0"
+                  aria-label={`Select ${doc.name} for synthesis`}
+                />
                 <DocIcon />
                 <span className="truncate flex-1 text-sm">{doc.name}</span>
               </li>
             ))}
           </ul>
+          {documents.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={onDocumentSynthesis}
+                disabled={selectedDocIds.length < 2}
+                className="w-full text-center px-4 py-2 bg-blue-600 text-white font-semibold rounded-md transition-colors hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed"
+                aria-label="Synthesize selected documents"
+              >
+                Synthesize Documents ({selectedDocIds.length})
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </aside>

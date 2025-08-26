@@ -98,3 +98,43 @@ export const findDocumentsOnline = async (history: Message[]) => {
 
     return stream;
 };
+
+export const generateSuggestedQuestions = async (userQuery: string, modelResponse: string): Promise<string[]> => {
+    const prompt = `Based on the following user query and model response, generate a JSON array of three distinct and insightful follow-up questions the user could ask next. The questions should encourage deeper exploration of the topic. The response must be only a valid JSON array of strings, with no other text or markdown formatting.
+
+    **User Query:** "${userQuery}"
+
+    **Model Response:** "${modelResponse.substring(0, 4000)}..." 
+
+    **RESPONSE MUST BE ONLY THE JSON ARRAY OF STRINGS.**`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    description: "A list of three distinct and insightful follow-up questions.",
+                    items: { 
+                        type: Type.STRING,
+                        description: "An insightful follow-up question."
+                    }
+                }
+            }
+        });
+        
+        const jsonText = response.text.trim();
+        const questions = JSON.parse(jsonText);
+        
+        if (Array.isArray(questions) && questions.every(q => typeof q === 'string')) {
+            return questions.slice(0, 3); // Ensure max of 3 questions
+        }
+        return [];
+
+    } catch (error) {
+        console.error("Error generating or parsing suggested questions:", error);
+        return []; // Return empty array on failure
+    }
+};

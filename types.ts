@@ -1,3 +1,4 @@
+
 export interface Message {
   id: string;
   role: 'user' | 'model';
@@ -12,12 +13,19 @@ export interface Source {
   title: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Chat {
   id: string;
   title: string;
   messages: Message[];
   createdAt: string;
   documentIds?: string[];
+  projectId: string;
 }
 
 export interface Document {
@@ -26,6 +34,7 @@ export interface Document {
   content: string; // base64 encoded content
   mimeType: string;
   createdAt: string;
+  projectId: string;
 }
 
 export type ResearchMode = 'deep_research' | 'find_documents';

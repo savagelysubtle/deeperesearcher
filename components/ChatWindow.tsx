@@ -1,9 +1,35 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import type { Chat, Message, Source, Document, ResearchMode } from '../types';
 import ReactMarkdown, { type Options as ReactMarkdownOptions } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 // Helper Icon Components defined within the main component file to reduce file count
+
+const ExportIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+);
+
+const ThumbsUpIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333V17a1 1 0 001 1h6.364a1 1 0 00.942-.671l1.659-6.223A1.5 1.5 0 0014.5 9H11V5.5a2.5 2.5 0 00-5 0v5.333z" />
+    </svg>
+);
+
+const ThumbsDownIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667V3a1 1 0 00-1-1H6.636a1 1 0 00-.942.671L4.035 8.9a1.5 1.5 0 001.465 2.1H9v4.5a2.5 2.5 0 005 0V9.667z" />
+    </svg>
+);
+
+const LightbulbIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-300" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.657a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM9 12a1 1 0 012 0v5a1 1 0 11-2 0v-5zM4.343 5.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM1 11a1 1 0 100 2h1a1 1 0 100-2H1zM15 11a1 1 0 100 2h1a1 1 0 100-2h-1zM7.05 16.95a1 1 0 00-1.414 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707zM12.95 16.95a1 1 0 001.414 1.414l.707-.707a1 1 0 00-1.414-1.414l-.707.707z" />
+    </svg>
+);
+
 
 const DownloadIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -201,7 +227,7 @@ const markdownComponents: ReactMarkdownOptions['components'] = {
 };
 
 
-const MessageItem: React.FC<{ message: Message }> = ({ message }) => {
+const MessageItem: React.FC<{ message: Message; onFeedback: (feedback: 'up' | 'down') => void; }> = ({ message, onFeedback }) => {
     const isUser = message.role === 'user';
     const isFindDocumentsResponse = message.role === 'model' && message.mode === 'find_documents';
 
@@ -234,6 +260,14 @@ const MessageItem: React.FC<{ message: Message }> = ({ message }) => {
                             {message.text}
                         </ReactMarkdown>
                         <SourceList sources={message.sources || []} />
+                        <div className="mt-3 pt-2 border-t border-gray-600/50 flex items-center gap-2">
+                            <button onClick={() => onFeedback('up')} className="p-1 rounded-md text-gray-400 hover:bg-gray-600 hover:text-white transition-colors" aria-label="Good response">
+                                <ThumbsUpIcon />
+                            </button>
+                             <button onClick={() => onFeedback('down')} className="p-1 rounded-md text-gray-400 hover:bg-gray-600 hover:text-white transition-colors" aria-label="Bad response">
+                                <ThumbsDownIcon />
+                            </button>
+                        </div>
                     </>
                 )}
             </div>
@@ -256,9 +290,10 @@ interface ChatWindowProps {
   onNewChat: () => void;
   estimatedTokens: number;
   tokenLimit: number;
+  suggestedQuestions: string[];
 }
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoading, onSendMessage, attachedDocuments, onAttachDocument, onDetachDocument, onNewChat, estimatedTokens, tokenLimit }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoading, onSendMessage, attachedDocuments, onAttachDocument, onDetachDocument, onNewChat, estimatedTokens, tokenLimit, suggestedQuestions }) => {
   const [input, setInput] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -285,6 +320,46 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
     }
   };
   
+    const handleSendSuggestion = (question: string) => {
+        if (!isLoading) {
+            onSendMessage(question, 'deep_research');
+        }
+    };
+  
+  const handleExportChat = () => {
+    if (!chat) return;
+
+    const markdownContent = messages.map(msg => {
+        const timestamp = new Date(msg.timestamp).toLocaleString();
+        let content = `## ${msg.role === 'user' ? 'User' : 'Model'} _at ${timestamp}_\n\n`;
+        
+        // For user messages, use blockquote for better readability
+        if (msg.role === 'user') {
+            content += msg.text.split('\n').map(line => `> ${line}`).join('\n') + '\n\n';
+        } else {
+            content += `${msg.text}\n\n`;
+        }
+        
+        if (msg.role === 'model' && msg.sources && msg.sources.length > 0) {
+            content += `### Sources\n\n`;
+            content += msg.sources.map(s => `- [${s.title}](${s.uri})`).join('\n');
+            content += '\n\n';
+        }
+        return content;
+    }).join('---\n\n');
+
+    const blob = new Blob([markdownContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeTitle = chat.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.href = url;
+    a.download = `${safeTitle || 'chat-export'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -324,7 +399,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
         </div>
       )}
       <header className="p-4 border-b border-gray-700">
-        <h2 className="text-lg font-semibold">{chat.title}</h2>
+        <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">{chat.title}</h2>
+             <button
+                onClick={handleExportChat}
+                className="p-2 rounded-md text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"
+                aria-label="Export chat as markdown"
+                title="Export chat as markdown"
+             >
+                <ExportIcon />
+            </button>
+        </div>
          {attachedDocuments.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2 items-center">
             <span className="text-xs text-gray-400 font-medium self-center">Context:</span>
@@ -348,7 +433,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
       </header>
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {messages.map((msg) => (
-          <MessageItem key={msg.id} message={msg} />
+          <MessageItem key={msg.id} message={msg} onFeedback={(feedback) => console.log(`Feedback received: '${feedback}' for message ID ${msg.id}`)} />
         ))}
         {isLoading && (
             <div className="flex items-start gap-4">
@@ -361,6 +446,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
         )}
         <div ref={messagesEndRef} />
       </div>
+       {suggestedQuestions.length > 0 && !isLoading && (
+            <div className="px-6 pb-2">
+                <div className="flex items-center gap-2 mb-2">
+                    <LightbulbIcon />
+                    <h4 className="text-sm font-semibold text-gray-300">Suggested Follow-ups</h4>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {suggestedQuestions.map((q, i) => (
+                        <button
+                            key={i}
+                            onClick={() => handleSendSuggestion(q)}
+                            className="text-left px-3 py-1.5 bg-gray-700/80 text-gray-200 text-sm rounded-lg hover:bg-gray-600 transition-colors"
+                        >
+                            {q}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        )}
       <div className="p-4 bg-gray-900/50 border-t border-gray-700">
         {researchMode === 'find_documents' && (
             <div className="relative mb-2">

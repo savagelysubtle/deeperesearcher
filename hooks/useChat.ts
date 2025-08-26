@@ -1,7 +1,7 @@
 
 import { useState, useCallback } from 'react';
 import type { Chat, Message, Document, Source, ResearchMode } from '../types';
-import { generateDeepResearchResponse, findDocumentsOnline } from '../services/geminiService';
+import { generateDeepResearchResponse, findDocumentsOnline, generateSuggestedQuestions } from '../services/geminiService';
 import { saveChat } from '../services/dbService';
 
 const generateRefinedPrompt = (corePrompt: string, siteFilter: string | null, attempt: number): string => {
@@ -33,9 +33,12 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
   const [messages, setMessages] = useState<Message[]>(activeChat?.messages || []);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
 
   const sendMessage = useCallback(async (prompt: string, mode: ResearchMode) => {
     if (!activeChat) return;
+
+    setSuggestedQuestions([]); // Clear suggestions on new message
 
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
@@ -170,6 +173,15 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
 
         const updatedChat = { ...activeChat, messages: finalMessages, title: finalMessages.length > 2 ? activeChat.title : prompt.substring(0, 30) };
         saveChat(updatedChat);
+        
+        // Generate suggested questions after the main response is complete
+        try {
+            const questions = await generateSuggestedQuestions(prompt, fullResponseText);
+            setSuggestedQuestions(questions);
+        } catch (suggestionError) {
+            console.error("Failed to generate suggested questions:", suggestionError);
+            // Fail gracefully, don't show an error to the user for this part.
+        }
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
@@ -186,5 +198,5 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
     }
   }, [activeChat, messages, allDocuments]);
   
-  return { messages, setMessages, sendMessage, isLoading, error };
+  return { messages, setMessages, sendMessage, isLoading, error, suggestedQuestions };
 };

@@ -1,10 +1,12 @@
 
+
 import React, { useState, useCallback } from 'react';
 import { saveDocument } from '../services/dbService';
 import type { Document } from '../types';
 
 interface FileUploaderProps {
   onUploadSuccess: () => void;
+  projectId: string;
 }
 
 const UploadIcon: React.FC = () => (
@@ -14,7 +16,7 @@ const UploadIcon: React.FC = () => (
 );
 
 
-export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess }) => {
+export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, projectId }) => {
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFile = useCallback((file: File) => {
@@ -28,13 +30,14 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess }) =
           content: content,
           mimeType: file.type,
           createdAt: new Date().toISOString(),
+          projectId: projectId,
         };
         saveDocument(newDoc);
         onUploadSuccess();
       }
     };
     reader.readAsDataURL(file);
-  }, [onUploadSuccess]);
+  }, [onUploadSuccess, projectId]);
 
   const handleDragEnter = (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();

@@ -1,8 +1,17 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
-import { getChats, getDocuments, saveChat, deleteChat as dbDeleteChat } from './services/dbService';
-import type { Chat, Document } from './types';
+import { 
+  getProjects, 
+  saveProject, 
+  deleteProject as dbDeleteProject, 
+  getChats, 
+  getDocuments, 
+  saveChat, 
+  deleteChat as dbDeleteChat 
+} from './services/dbService';
+import type { Chat, Document, Project } from './types';
 import { useChat } from './hooks/useChat';
 
 const SIDEBAR_MIN_WIDTH = 280;
@@ -10,6 +19,11 @@ const SIDEBAR_MAX_WIDTH_PERCENT = 0.4;
 const CONTEXT_WINDOW_LIMIT_TOKENS = 1_000_000; // Based on Gemini 2.5's 1M context window
 
 const App: React.FC = () => {
+  // Project state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  
+  // State for active project's data
   const [chats, setChats] = useState<Chat[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -22,30 +36,110 @@ const App: React.FC = () => {
   // Token state
   const [estimatedTokens, setEstimatedTokens] = useState(0);
 
+  // Document synthesis state
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+
+
+  // --- Project Management ---
+
+  const handleNewProject = useCallback(() => {
+    const newProject: Project = {
+      id: `proj-${Date.now()}`,
+      name: 'New Project',
+      createdAt: new Date().toISOString(),
+    };
+    const updatedProjects = [newProject, ...getProjects()];
+    setProjects(updatedProjects);
+    saveProject(newProject);
+    setActiveProjectId(newProject.id);
+  }, []);
+  
+  const handleRenameProject = (projectId: string, newName: string) => {
+    const projectToUpdate = projects.find(p => p.id === projectId);
+    if (projectToUpdate && newName.trim()) {
+      const updatedProject = { ...projectToUpdate, name: newName.trim() };
+      const updatedProjects = projects.map(p => p.id === projectId ? updatedProject : p);
+      setProjects(updatedProjects);
+      saveProject(updatedProject);
+    }
+  };
+  
+  const handleDeleteProject = (projectId: string) => {
+    const updatedProjects = projects.filter(p => p.id !== projectId);
+    setProjects(updatedProjects);
+    dbDeleteProject(projectId);
+
+    if (activeProjectId === projectId) {
+      if (updatedProjects.length > 0) {
+        setActiveProjectId(updatedProjects[0].id);
+      } else {
+        handleNewProject();
+      }
+    }
+  };
+
+  const handleSelectProject = (projectId: string) => {
+    setActiveProjectId(projectId);
+  };
+  
   const handleNewChat = useCallback(() => {
+    if (!activeProjectId) return;
+
     const newChat: Chat = {
       id: `chat-${Date.now()}`,
       title: 'New Research',
       messages: [],
       createdAt: new Date().toISOString(),
       documentIds: [],
+      projectId: activeProjectId,
     };
-    const updatedChats = [newChat, ...getChats()];
+    const updatedChats = [newChat, ...getChats(activeProjectId)];
     setChats(updatedChats);
     setActiveChatId(newChat.id);
     saveChat(newChat);
-  },[]);
+  },[activeProjectId]);
+
+  // --- Initialization and Project/Chat Switching ---
+  
+  useEffect(() => {
+    const loadedProjects = getProjects();
+    if (loadedProjects.length > 0) {
+      setProjects(loadedProjects);
+      setActiveProjectId(loadedProjects[0].id);
+    } else {
+      // Create a default project if none exist
+      const defaultProject: Project = {
+        id: `proj-${Date.now()}`,
+        name: 'My First Project',
+        createdAt: new Date().toISOString(),
+      };
+      setProjects([defaultProject]);
+      saveProject(defaultProject);
+      setActiveProjectId(defaultProject.id);
+    }
+  }, []);
 
   useEffect(() => {
-    const loadedChats = getChats();
-    setChats(loadedChats);
-    setDocuments(getDocuments());
-    if (loadedChats.length > 0) {
-      setActiveChatId(loadedChats[0].id);
+    if (activeProjectId) {
+      const projectChats = getChats(activeProjectId);
+      const projectDocs = getDocuments(activeProjectId);
+      setChats(projectChats);
+      setDocuments(projectDocs);
+      setSelectedDocIds([]); // Clear selection on project change
+
+      if (projectChats.length > 0) {
+        setActiveChatId(projectChats[0].id);
+      } else {
+        handleNewChat(); // Creates a new chat if project is empty
+      }
     } else {
-      handleNewChat();
+      setChats([]);
+      setDocuments([]);
+      setActiveChatId(null);
+      setSelectedDocIds([]);
     }
-  }, [handleNewChat]);
+  }, [activeProjectId, handleNewChat]);
 
   const activeChat = chats.find(c => c.id === activeChatId);
 
@@ -54,7 +148,19 @@ const App: React.FC = () => {
     setMessages,
     sendMessage,
     isLoading,
+    suggestedQuestions,
   } = useChat(activeChat, documents);
+  
+  // Effect to handle programmatic message sending for synthesis
+  useEffect(() => {
+      if (pendingPrompt && activeChat && !isLoading) {
+          // Ensure this is a new chat to prevent sending to an existing one by mistake
+          if (activeChat.messages.length === 0) {
+              sendMessage(pendingPrompt, 'deep_research');
+              setPendingPrompt(null);
+          }
+      }
+  }, [pendingPrompt, activeChat, isLoading, sendMessage]);
 
   useEffect(() => {
     if (activeChat) {
@@ -87,7 +193,9 @@ const App: React.FC = () => {
   };
 
   const handleDocumentsUpdated = () => {
-    setDocuments(getDocuments());
+    if (activeProjectId) {
+        setDocuments(getDocuments(activeProjectId));
+    }
   };
   
   const handleAttachDocument = useCallback((docId: string) => {
@@ -132,6 +240,41 @@ const App: React.FC = () => {
         handleNewChat();
       }
     }
+  };
+  
+  // --- Document Synthesis Handlers ---
+  const handleToggleDocumentSelection = (docId: string) => {
+      setSelectedDocIds(prevSelected =>
+          prevSelected.includes(docId)
+              ? prevSelected.filter(id => id !== docId)
+              : [...prevSelected, docId]
+      );
+  };
+
+  const handleDocumentSynthesis = () => {
+      if (!activeProjectId || selectedDocIds.length < 2) return;
+
+      const newChatTitle = `Synthesis of ${selectedDocIds.length} documents`;
+
+      const newChat: Chat = {
+        id: `chat-${Date.now()}`,
+        title: newChatTitle,
+        messages: [],
+        createdAt: new Date().toISOString(),
+        documentIds: [...selectedDocIds], // Create a copy of the array
+        projectId: activeProjectId,
+      };
+
+      const updatedChats = [newChat, ...chats];
+      setChats(updatedChats);
+      saveChat(newChat);
+      setActiveChatId(newChat.id);
+
+      const synthesisPrompt = "Based on the attached documents, please provide a detailed synthesis. Identify the key themes, compare and contrast any arguments or data, and highlight any contradictions.";
+      setPendingPrompt(synthesisPrompt);
+
+      // Clear selection after starting synthesis
+      setSelectedDocIds([]);
   };
 
   // --- Sidebar Resizing Logic ---
@@ -186,10 +329,11 @@ const App: React.FC = () => {
             onNewChat={handleNewChat}
             estimatedTokens={estimatedTokens}
             tokenLimit={CONTEXT_WINDOW_LIMIT_TOKENS}
+            suggestedQuestions={suggestedQuestions}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-400">
-            Select a chat or start a new one to begin your research.
+            Select a project and a chat to begin your research.
           </div>
         )}
       </main>
@@ -207,6 +351,12 @@ const App: React.FC = () => {
         style={{ width: isSidebarCollapsed ? 0 : sidebarWidth, minWidth: isSidebarCollapsed ? 0 : SIDEBAR_MIN_WIDTH }}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onNewProject={handleNewProject}
+        onSelectProject={handleSelectProject}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
         chats={chats}
         documents={documents}
         activeChatId={activeChatId}
@@ -217,6 +367,9 @@ const App: React.FC = () => {
         activeDocumentIds={activeChat?.documentIds || []}
         onRenameChat={handleRenameChat}
         onDeleteChat={handleDeleteChat}
+        selectedDocIds={selectedDocIds}
+        onToggleDocumentSelection={handleToggleDocumentSelection}
+        onDocumentSynthesis={handleDocumentSynthesis}
       />
     </div>
   );
