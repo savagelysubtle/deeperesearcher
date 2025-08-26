@@ -283,24 +283,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
                   setDraggedDocId(doc.id);
                 }}
                 onDragEnd={() => setDraggedDocId(null)}
-                className={`flex items-center gap-3 p-2 rounded-md transition-colors cursor-pointer ${
-                  activeDocumentIds.includes(doc.id) ? 'bg-gray-700' : 'hover:bg-gray-800'
+                className={`flex items-center gap-3 p-2 rounded-md transition-colors ${
+                  activeDocumentIds.includes(doc.id) ? 'bg-gray-700' : ''
                 } ${
                   draggedDocId === doc.id ? 'opacity-50' : ''
                 }`}
-                onClick={() => onAttachDocument(doc.id)}
-                aria-label={`Attach ${doc.name} to chat`}
               >
                 <input 
                   type="checkbox"
                   checked={selectedDocIds.includes(doc.id)}
                   onChange={() => onToggleDocumentSelection(doc.id)}
-                  onClick={(e) => e.stopPropagation()}
                   className="w-4 h-4 bg-gray-600 border-gray-500 rounded text-blue-500 focus:ring-blue-500 flex-shrink-0"
                   aria-label={`Select ${doc.name} for synthesis`}
                 />
-                <DocIcon />
-                <span className="truncate flex-1 text-sm">{doc.name}</span>
+                <div
+                  className="flex items-center gap-3 flex-1 cursor-pointer hover:bg-gray-800 rounded-md p-1 -m-1"
+                  onClick={() => onAttachDocument(doc.id)}
+                  aria-label={`Attach ${doc.name} to chat`}
+                >
+                  <DocIcon />
+                  <span className="truncate flex-1 text-sm">{doc.name}</span>
+                </div>
               </li>
             ))}
           </ul>

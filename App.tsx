@@ -151,7 +151,7 @@ const App: React.FC = () => {
     suggestedQuestions,
   } = useChat(activeChat, documents);
   
-  // Effect to handle programmatic message sending for synthesis
+  // Effect to programmatically send a prompt to a newly created chat for features like Document Synthesis
   useEffect(() => {
       if (pendingPrompt && activeChat && !isLoading) {
           // Ensure this is a new chat to prevent sending to an existing one by mistake
