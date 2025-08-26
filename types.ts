@@ -25,6 +25,7 @@ export interface Chat {
   title: string;
   messages: Message[];
   createdAt: string;
+  lastActivityAt?: string;
   documentIds?: string[];
   projectId: string;
 }

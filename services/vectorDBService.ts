@@ -36,25 +36,17 @@ const chunkText = (text: string): string[] => {
  * This involves decoding, chunking, embedding, and adding to the project's collection.
  * @param projectId - The ID of the project to add the document to.
  * @param doc - The document object containing metadata and base64 content.
+ * @param plainText - The pre-extracted plain text from the document.
  * @param onStatusUpdate - A callback to provide real-time feedback to the UI.
  */
 export const addDocumentToCollection = async (
     projectId: string, 
     doc: Document,
+    plainText: string,
     onStatusUpdate: (message: string) => void
 ) => {
   onStatusUpdate("Initializing document processing...");
   const collection = await getOrCreateCollection(projectId);
-  
-  // Decode the base64 content to plain text.
-  // Using try-catch for robustness in case of malformed base64.
-  let plainText = '';
-  try {
-    plainText = atob(doc.content);
-  } catch (e) {
-    console.error(`Failed to decode base64 content for document ${doc.name}:`, e);
-    throw new Error(`Could not read the content of ${doc.name}.`);
-  }
   
   onStatusUpdate("Chunking document...");
   const chunks = chunkText(plainText);

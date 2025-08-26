@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
 import { 
@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [chatSortOrder, setChatSortOrder] = useState<'lastActivityAt' | 'createdAt'>('lastActivityAt');
   
   // Sidebar state
   const [sidebarWidth, setSidebarWidth] = useState(320);
@@ -105,10 +106,12 @@ const App: React.FC = () => {
       documentIds: [],
       projectId: activeProjectId,
     };
-    const updatedChats = [newChat, ...getChats(activeProjectId)];
+    // The new chat is saved first, which adds the 'lastActivityAt' timestamp.
+    // Then, we refetch the chats to ensure the UI state is perfectly in sync.
+    saveChat(newChat);
+    const updatedChats = getChats(activeProjectId);
     setChats(updatedChats);
     setActiveChatId(newChat.id);
-    saveChat(newChat);
   },[activeProjectId]);
 
   // --- Initialization and Project/Chat Switching ---
@@ -146,7 +149,8 @@ const App: React.FC = () => {
       setSelectedDocIds([]); // Clear selection on project change
 
       if (projectChats.length > 0) {
-        setActiveChatId(projectChats[0].id);
+        // The sorted list will determine the default active chat
+        setActiveChatId(null); // Set to null first to trigger re-evaluation below
       } else {
         handleNewChat(); // Creates a new chat if project is empty
       }
@@ -157,6 +161,21 @@ const App: React.FC = () => {
       setSelectedDocIds([]);
     }
   }, [activeProjectId, handleNewChat]);
+  
+    // Memoized sorted chats
+    const sortedChats = useMemo(() => {
+      return [...chats].sort((a, b) => {
+        const dateA = new Date(a[chatSortOrder] || a.createdAt).getTime();
+        const dateB = new Date(b[chatSortOrder] || b.createdAt).getTime();
+        return dateB - dateA;
+      });
+    }, [chats, chatSortOrder]);
+
+  useEffect(() => {
+      if (activeProjectId && !activeChatId && sortedChats.length > 0) {
+          setActiveChatId(sortedChats[0].id);
+      }
+  }, [sortedChats, activeChatId, activeProjectId]);
 
   const activeChat = chats.find(c => c.id === activeChatId);
   const activeProject = projects.find(p => p.id === activeProjectId);
@@ -184,10 +203,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (activeChat) {
       setMessages(activeChat.messages);
-    } else if(chats.length > 0) {
-      setActiveChatId(chats[0].id)
+    } else if(sortedChats.length > 0 && activeChatId !== sortedChats[0].id) {
+        setActiveChatId(sortedChats[0].id);
     }
-  }, [activeChat, setMessages, chats]);
+  }, [activeChat, activeChatId, setMessages, sortedChats]);
   
   // Token Estimation Effect
   useEffect(() => {
@@ -222,46 +241,36 @@ const App: React.FC = () => {
 
     const newDocumentIds = [...(activeChat.documentIds || []), docId];
     const updatedChat = { ...activeChat, documentIds: newDocumentIds };
-    const updatedChats = chats.map(c => c.id === activeChatId ? updatedChat : c);
-    setChats(updatedChats);
     saveChat(updatedChat);
-  }, [activeChat, activeChatId, chats]);
+    setChats(getChats(activeProjectId!));
+  }, [activeChat, activeProjectId]);
 
   const handleDetachDocument = useCallback((docId: string) => {
     if (!activeChat) return;
 
     const newDocumentIds = activeChat.documentIds?.filter(id => id !== docId) || [];
     const updatedChat = { ...activeChat, documentIds: newDocumentIds };
-    const updatedChats = chats.map(c => c.id === activeChatId ? updatedChat : c);
-    setChats(updatedChats);
     saveChat(updatedChat);
-  }, [activeChat, activeChatId, chats]);
+    setChats(getChats(activeProjectId!));
+  }, [activeChat, activeProjectId]);
 
   const handleRenameChat = (chatId: string, newTitle: string) => {
     const chatToUpdate = chats.find(c => c.id === chatId);
     if (chatToUpdate && newTitle.trim()) {
       const updatedChat = { ...chatToUpdate, title: newTitle.trim() };
-      const updatedChats = chats.map(c => c.id === chatId ? updatedChat : c);
-      setChats(updatedChats);
       saveChat(updatedChat);
+      setChats(getChats(activeProjectId!));
     }
   };
 
   const handleDeleteChat = (chatId: string) => {
-    // First, perform the delete operation on the persistent storage.
     dbDeleteChat(chatId);
-
-    // Then, get the updated list of chats for the current project from the source of truth.
     const remainingChats = getChats(activeProjectId!);
     setChats(remainingChats);
-
-    // Finally, handle the logic for the active chat.
     if (activeChatId === chatId) {
       if (remainingChats.length > 0) {
-        // If chats remain, set the first one as active.
-        setActiveChatId(remainingChats[0].id);
+        setActiveChatId(sortedChats[0].id);
       } else {
-        // If no chats are left, create a new one.
         handleNewChat();
       }
     }
@@ -275,10 +284,8 @@ const App: React.FC = () => {
     if (chatToMove && chatToMove.projectId !== newProjectId) {
       const updatedChat = { ...chatToMove, projectId: newProjectId };
       saveChat(updatedChat);
-
-      // If the moved chat was in the currently active project, remove it from the view.
       if (chatToMove.projectId === activeProjectId) {
-        setChats(prevChats => prevChats.filter(c => c.id !== chatId));
+        setChats(getChats(activeProjectId));
       }
     }
   };
@@ -286,42 +293,26 @@ const App: React.FC = () => {
   // --- Message Editing ---
   const handleUpdateMessage = (messageId: string, newText: string) => {
     if (!activeChat) return;
-
     const updatedMessages = activeChat.messages.map(msg => 
       msg.id === messageId ? { ...msg, text: newText } : msg
     );
-    
     const updatedChat = { ...activeChat, messages: updatedMessages };
-    
-    // Update the local component state immediately for responsiveness
-    setMessages(updatedMessages);
-    
-    // Update the state for the entire chats array
-    const updatedChats = chats.map(c => c.id === activeChatId ? updatedChat : c);
-    setChats(updatedChats);
-    
-    // Persist the changes
+    setMessages(updatedMessages); // Optimistic UI update
     saveChat(updatedChat);
+    // No need to refetch all chats here, as message content doesn't affect list order
   };
 
     // --- Message Sending with Token Check ---
     const handleSendMessage = (prompt: string, mode: ResearchMode) => {
         const tokenUsagePercentage = (estimatedTokens / CONTEXT_WINDOW_LIMIT_TOKENS) * 100;
-        
         if (tokenUsagePercentage >= 90) {
-            const continueAnyway = window.confirm(
-                "Warning: You are using over 90% of the available context window.\n\n" +
-                "Sending more messages may result in incomplete or truncated responses.\n\n" +
-                "It is highly recommended to start a new chat.\n\n" +
-                "Do you want to send this message anyway?"
-            );
-            
-            if (!continueAnyway) {
-                return; // User chose not to send the message
+            if (!window.confirm("Warning: Context window usage is over 90%. Responses may be incomplete. It's recommended to start a new chat. Continue anyway?")) {
+                return;
             }
         }
-        
         sendMessage(prompt, mode);
+        // After sending, refetch chats to update activity sort order
+        setTimeout(() => setChats(getChats(activeProjectId!)), 100);
     };
 
   // --- Document Synthesis Handlers ---
@@ -335,27 +326,20 @@ const App: React.FC = () => {
 
   const handleDocumentSynthesis = () => {
       if (!activeProjectId || selectedDocIds.length < 2) return;
-
       const newChatTitle = `Synthesis of ${selectedDocIds.length} documents`;
-
       const newChat: Chat = {
         id: `chat-${Date.now()}`,
         title: newChatTitle,
         messages: [],
         createdAt: new Date().toISOString(),
-        documentIds: [...selectedDocIds], // Create a copy of the array
+        documentIds: [...selectedDocIds],
         projectId: activeProjectId,
       };
-
-      const updatedChats = [newChat, ...chats];
-      setChats(updatedChats);
       saveChat(newChat);
+      setChats(getChats(activeProjectId));
       setActiveChatId(newChat.id);
-
       const synthesisPrompt = "Based on the attached documents, please provide a detailed synthesis. Identify the key themes, compare and contrast any arguments or data, and highlight any contradictions.";
       setPendingPrompt(synthesisPrompt);
-
-      // Clear selection after starting synthesis
       setSelectedDocIds([]);
   };
   
@@ -369,17 +353,14 @@ const App: React.FC = () => {
 
   const handleSavePersona = (newSystemPrompt: string) => {
       if (!editingProjectPersona) return;
-
       const updatedProject = { ...editingProjectPersona, systemPrompt: newSystemPrompt };
       const updatedProjects = projects.map(p => 
           p.id === editingProjectPersona.id ? updatedProject : p
       );
-      
       setProjects(updatedProjects);
       saveProject(updatedProject);
-      setEditingProjectPersona(null); // Close modal
+      setEditingProjectPersona(null);
   };
-
 
   // --- Sidebar Resizing Logic ---
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -412,11 +393,9 @@ const App: React.FC = () => {
 
   const handleRerunTour = () => {
     localStorage.removeItem('onboardingComplete');
-    // Reset to false first to ensure Joyride remounts if it's in a weird state
     setRunTour(false); 
     setTimeout(() => setRunTour(true), 100);
   };
-
 
   return (
     <div className="flex h-screen font-sans overflow-hidden">
@@ -460,7 +439,7 @@ const App: React.FC = () => {
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-400">
-            Select a project and a chat to begin your research.
+            {activeProjectId ? "Create a new chat to begin." : "Select a project to start."}
           </div>
         )}
       </main>
@@ -485,7 +464,9 @@ const App: React.FC = () => {
         onRenameProject={handleRenameProject}
         onDeleteProject={handleDeleteProject}
         onOpenPersonaEditor={handleOpenPersonaEditor}
-        chats={chats}
+        chats={sortedChats}
+        chatSortOrder={chatSortOrder}
+        onChatSortOrderChange={setChatSortOrder}
         documents={documents}
         activeChatId={activeChatId}
         onNewChat={handleNewChat}

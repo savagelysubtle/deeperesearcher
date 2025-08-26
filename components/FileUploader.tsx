@@ -1,8 +1,13 @@
 import React, { useState, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import { saveDocument } from '../services/dbService';
 import { generateSummary } from '../services/geminiService';
 import { addDocumentToCollection } from '../services/vectorDBService';
 import type { Document } from '../types';
+
+// Set the workerSrc for pdf.js. This is crucial for it to work in a browser environment.
+// Using a CDN link that matches the import map.
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.worker.mjs';
 
 interface FileUploaderProps {
   onUploadSuccess: () => void;
@@ -30,42 +35,76 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, pro
 
   const handleFile = useCallback(async (file: File) => {
     setIsProcessing(true);
+    setProcessingMessage('Reading file...');
+
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const content = (e.target?.result as string)?.split(',')[1]; // Get base64 content
-      if (content) {
-        try {
-          setProcessingMessage('Summarizing document...');
-          const summary = await generateSummary(content, file.type);
-          
-          const newDoc: Document = {
-            id: `doc-${Date.now()}`,
-            name: file.name,
-            content: content,
-            mimeType: file.type,
-            createdAt: new Date().toISOString(),
-            projectId: projectId,
-            summary: summary,
-          };
-          saveDocument(newDoc);
-          
-          // Pass setProcessingMessage to get granular status updates
-          await addDocumentToCollection(projectId, newDoc, setProcessingMessage);
-
-          onUploadSuccess();
-        } catch (error) {
-          console.error("Failed to process and index file:", error);
-          setProcessingMessage('An error occurred during processing.');
-          // Keep the error message for a few seconds before resetting
+      const dataUrl = e.target?.result as string;
+      if (!dataUrl) {
+          setProcessingMessage('Could not read file content.');
           setTimeout(() => setIsProcessing(false), 3000);
           return;
-        }
-      } else {
-        setProcessingMessage('Could not read file content.');
-        setTimeout(() => setIsProcessing(false), 3000);
-        return;
       }
-      setIsProcessing(false);
+      const content = dataUrl.split(',')[1]; // Get base64 content
+      
+      let plainText = '';
+      try {
+        setProcessingMessage('Extracting text...');
+        if (file.type === 'application/pdf') {
+            // Convert base64 to a binary string for pdf.js
+            const pdfData = atob(content);
+            const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+            const numPages = pdf.numPages;
+            let fullText = '';
+            for (let i = 1; i <= numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                // We check for the 'str' property which is available on TextItem objects.
+                const pageText = textContent.items.map(item => ('str' in item ? item.str : '')).join(' ');
+                fullText += pageText + '\n\n';
+            }
+            plainText = fullText;
+        } else if (file.type.startsWith('text/')) {
+            plainText = atob(content);
+        } else {
+             // We can't process other binary files client-side without more libraries.
+             // For now, we will inform the user.
+             throw new Error(`Unsupported file type: ${file.type}. Please upload a PDF or a plain text file.`);
+        }
+
+        if (!plainText.trim()) {
+            throw new Error('No text could be extracted from the document.');
+        }
+
+        setProcessingMessage('Summarizing document...');
+        const summary = await generateSummary(plainText);
+        
+        const newDoc: Document = {
+          id: `doc-${Date.now()}`,
+          name: file.name,
+          content: content,
+          mimeType: file.type,
+          createdAt: new Date().toISOString(),
+          projectId: projectId,
+          summary: summary,
+        };
+        saveDocument(newDoc);
+        
+        // Pass the extracted plainText to the vector service
+        await addDocumentToCollection(projectId, newDoc, plainText, setProcessingMessage);
+
+        onUploadSuccess();
+
+      } catch (error: any) {
+          console.error("Failed to process and index file:", error);
+          const errorMessage = error instanceof Error ? error.message : 'An error occurred during processing.';
+          setProcessingMessage(errorMessage);
+          // Keep the error message for a few seconds before resetting
+          setTimeout(() => setIsProcessing(false), 4000);
+          return;
+      } finally {
+        setIsProcessing(false);
+      }
     };
     reader.onerror = () => {
         console.error("Failed to read file.");
@@ -128,7 +167,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, pro
             </p>
           </>
       )}
-      <input type="file" className="hidden" onChange={handleFileChange} disabled={isProcessing}/>
+      <input type="file" className="hidden" onChange={handleFileChange} disabled={isProcessing} accept="application/pdf,text/plain"/>
     </label>
   );
 };

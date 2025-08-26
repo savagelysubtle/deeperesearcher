@@ -126,17 +126,21 @@ export const deleteProject = async (projectId: string): Promise<void> => {
 export const getChats = (projectId: string): Chat[] => {
   const allChats = getAllChats();
   const projectChats = allChats.filter(chat => chat.projectId === projectId);
-  return projectChats.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // Sorting is now handled in the UI layer to allow for dynamic sort order.
+  return projectChats;
 };
 
 export const saveChat = (chatToSave: Chat): void => {
+  // Add/update the last activity timestamp on every save operation.
+  const chatWithTimestamp = { ...chatToSave, lastActivityAt: new Date().toISOString() };
+
   const chats = getAllChats();
-  const existingIndex = chats.findIndex((chat) => chat.id === chatToSave.id);
+  const existingIndex = chats.findIndex((chat) => chat.id === chatWithTimestamp.id);
 
   if (existingIndex > -1) {
-    chats[existingIndex] = chatToSave;
+    chats[existingIndex] = chatWithTimestamp;
   } else {
-    chats.unshift(chatToSave);
+    chats.unshift(chatWithTimestamp);
   }
   
   saveAllChats(chats);

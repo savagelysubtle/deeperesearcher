@@ -129,8 +129,8 @@ export const embedText = async (texts: string[]): Promise<number[][]> => {
 
         results.forEach((result, index) => {
             if (result.status === 'fulfilled') {
-                // Fix: Corrected property access for embedding response based on the provided error message.
-                const embedding = result.value.embeddings.values;
+                // FIX: The `embedContent` response contains an `embeddings` array property, even for a single content request.
+                const embedding = result.value.embeddings[0].values;
                 allEmbeddings.push(embedding);
             } else {
                 // Log granular error for the failed chunk without stopping the entire process.
@@ -150,23 +150,17 @@ export const embedText = async (texts: string[]): Promise<number[][]> => {
     return allEmbeddings;
 };
 
-export const generateSummary = async (base64Content: string, mimeType: string): Promise<string> => {
-    const prompt = "Please provide a concise, 3-sentence summary of the attached document. Focus on the key topics and conclusions.";
+export const generateSummary = async (textContent: string): Promise<string> => {
+    // If the text is very long, truncate it to avoid hitting model input limits for a simple summary.
+    const MAX_SUMMARY_LENGTH = 10000; // Approx 2500 tokens
+    const truncatedContent = textContent.substring(0, MAX_SUMMARY_LENGTH);
+    
+    const prompt = `Please provide a concise, 3-sentence summary of the following document text. Focus on the key topics and conclusions.\n\n---\n\n${truncatedContent}`;
 
     try {
         const response = await ai.models.generateContent({
             model: model,
-            contents: {
-                parts: [
-                    { text: prompt },
-                    {
-                        inlineData: {
-                            mimeType: mimeType,
-                            data: base64Content,
-                        }
-                    }
-                ]
-            }
+            contents: prompt
         });
 
         return response.text.trim();
