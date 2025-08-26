@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Deep Research",
+  "description": "An advanced research application powered by Gemini. It researches topics, compiles answers with sources, maintains chat history, and allows you to chat with your documents to synthesize information.",
+  "requestFramePermissions": []
+}
