@@ -1,7 +1,7 @@
-
 import React, { useState, useCallback } from 'react';
 import { saveDocument } from '../services/dbService';
 import { generateSummary } from '../services/geminiService';
+import { addDocumentToCollection } from '../services/vectorDBService';
 import type { Document } from '../types';
 
 interface FileUploaderProps {
@@ -26,6 +26,7 @@ const SpinnerIcon: React.FC = () => (
 export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, projectId }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState('');
 
   const handleFile = useCallback(async (file: File) => {
     setIsProcessing(true);
@@ -34,7 +35,9 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, pro
       const content = (e.target?.result as string)?.split(',')[1]; // Get base64 content
       if (content) {
         try {
+          setProcessingMessage('Summarizing document...');
           const summary = await generateSummary(content, file.type);
+          
           const newDoc: Document = {
             id: `doc-${Date.now()}`,
             name: file.name,
@@ -45,19 +48,29 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, pro
             summary: summary,
           };
           saveDocument(newDoc);
+          
+          setProcessingMessage('Indexing document for search...');
+          await addDocumentToCollection(projectId, newDoc);
+
           onUploadSuccess();
         } catch (error) {
-          console.error("Failed to process file and generate summary:", error);
-        } finally {
-          setIsProcessing(false);
+          console.error("Failed to process and index file:", error);
+          setProcessingMessage('An error occurred during processing.');
+          // Keep the error message for a few seconds before resetting
+          setTimeout(() => setIsProcessing(false), 3000);
+          return;
         }
       } else {
-        setIsProcessing(false);
+        setProcessingMessage('Could not read file content.');
+        setTimeout(() => setIsProcessing(false), 3000);
+        return;
       }
+      setIsProcessing(false);
     };
     reader.onerror = () => {
         console.error("Failed to read file.");
-        setIsProcessing(false);
+        setProcessingMessage('An error occurred while reading the file.');
+        setTimeout(() => setIsProcessing(false), 3000);
     }
     reader.readAsDataURL(file);
   }, [onUploadSuccess, projectId]);
@@ -105,7 +118,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, pro
       {isProcessing ? (
           <>
             <SpinnerIcon />
-            <p className="mt-2 text-sm text-gray-400">Summarizing document...</p>
+            <p className="mt-2 text-sm text-gray-400">{processingMessage}</p>
           </>
       ) : (
           <>

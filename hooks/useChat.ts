@@ -1,8 +1,9 @@
 
 import { useState, useCallback } from 'react';
-import type { Chat, Message, Document, Source, ResearchMode } from '../types';
+import type { Chat, Message, Document, Source, ResearchMode, Project } from '../types';
 import { generateDeepResearchResponse, findDocumentsOnline, generateSuggestedQuestions } from '../services/geminiService';
 import { saveChat } from '../services/dbService';
+import { queryCollection } from '../services/vectorDBService';
 
 const generateRefinedPrompt = (corePrompt: string, siteFilter: string | null, attempt: number): string => {
     let refinedPrompt = corePrompt;
@@ -29,7 +30,7 @@ const generateRefinedPrompt = (corePrompt: string, siteFilter: string | null, at
 };
 
 
-export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) => {
+export const useChat = (activeChat: Chat | undefined, allDocuments: Document[], activeProject: Project | undefined) => {
   const [messages, setMessages] = useState<Message[]>(activeChat?.messages || []);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,10 +124,36 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
             return finalMessages;
         });
 
-      } else { // 'deep_research' mode
-        const attachedDocuments = allDocuments.filter(doc => activeChat.documentIds?.includes(doc.id));
-        const stream = await generateDeepResearchResponse(history, attachedDocuments);
+      } else { // 'deep_research' mode with RAG
+        // 1. Get the IDs of the currently attached documents for filtering.
+        const attachedDocIds = allDocuments
+          .filter(doc => activeChat.documentIds?.includes(doc.id))
+          .map(doc => doc.id);
 
+        // 2. Retrieve context from ChromaDB. If no docs are attached, this searches the whole project.
+        const { chunks, metadatas } = await queryCollection(
+          activeChat.projectId, 
+          prompt, 
+          5, 
+          attachedDocIds
+        );
+        
+        // 3. Augment the user's prompt with the retrieved context.
+        const contextString = chunks.length > 0
+          ? chunks.map((chunk, i) => 
+              `--- Context from ${metadatas[i]?.documentName} ---\n${chunk}`
+            ).join('\n\n')
+          : "No relevant context found in the selected documents.";
+
+        const augmentedPrompt = `Based on the following context, please answer the user's question. When you use information from the context, cite the source document name (e.g., [Source: report.pdf]). If the provided context is not sufficient or relevant, use your general knowledge and web search capabilities.\n\n${contextString}\n\nUser Question: ${prompt}`;
+
+        // 4. Modify history with the augmented prompt and call the LLM.
+        // We pass an empty array for documents because the context is now embedded in the prompt.
+        const historyForRAG = [...history];
+        historyForRAG[historyForRAG.length - 1].text = augmentedPrompt;
+        const stream = await generateDeepResearchResponse(historyForRAG, [], activeProject?.systemPrompt);
+
+        // --- The rest of the streaming logic is the same as before ---
         let fullResponseText = '';
         let sources: Source[] = [];
         
@@ -159,12 +186,14 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
         
         setMessages(prev => {
             const finalMessages = [...prev.filter(m => m.id !== modelMessage.id), finalModelMessage];
+             // Use original prompt for title generation
             const updatedChat = { ...activeChat, messages: finalMessages, title: finalMessages.length > 2 ? activeChat.title : prompt.substring(0, 30) };
             saveChat(updatedChat);
             return finalMessages;
         });
         
         try {
+            // Use original prompt for question generation
             const questions = await generateSuggestedQuestions(prompt, fullResponseText);
             setSuggestedQuestions(questions);
         } catch (suggestionError) {
@@ -184,7 +213,7 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
     } finally {
       setIsLoading(false);
     }
-  }, [activeChat, allDocuments]);
+  }, [activeChat, allDocuments, activeProject]);
 
   const sendMessage = useCallback(async (prompt: string, mode: ResearchMode) => {
     const userMessage: Message = {

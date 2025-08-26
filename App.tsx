@@ -11,9 +11,10 @@ import {
   saveChat, 
   deleteChat as dbDeleteChat 
 } from './services/dbService';
-import type { Chat, Document, Project } from './types';
+import type { Chat, Document, Project, ResearchMode } from './types';
 import { useChat } from './hooks/useChat';
 import OnboardingTour from './components/OnboardingTour';
+import { PersonaModal } from './components/PersonaModal';
 
 const SIDEBAR_MIN_WIDTH = 280;
 const SIDEBAR_MAX_WIDTH_PERCENT = 0.4;
@@ -23,6 +24,7 @@ const App: React.FC = () => {
   // Project state
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [editingProjectPersona, setEditingProjectPersona] = useState<Project | null>(null);
   
   // State for active project's data
   const [chats, setChats] = useState<Chat[]>([]);
@@ -152,6 +154,7 @@ const App: React.FC = () => {
   }, [activeProjectId, handleNewChat]);
 
   const activeChat = chats.find(c => c.id === activeChatId);
+  const activeProject = projects.find(p => p.id === activeProjectId);
 
   const {
     messages,
@@ -160,7 +163,7 @@ const App: React.FC = () => {
     isLoading,
     suggestedQuestions,
     regenerateResponse,
-  } = useChat(activeChat, documents);
+  } = useChat(activeChat, documents, activeProject);
   
   // Effect to programmatically send a prompt to a newly created chat for features like Document Synthesis
   useEffect(() => {
@@ -274,6 +277,26 @@ const App: React.FC = () => {
     saveChat(updatedChat);
   };
 
+    // --- Message Sending with Token Check ---
+    const handleSendMessage = (prompt: string, mode: ResearchMode) => {
+        const tokenUsagePercentage = (estimatedTokens / CONTEXT_WINDOW_LIMIT_TOKENS) * 100;
+        
+        if (tokenUsagePercentage >= 90) {
+            const continueAnyway = window.confirm(
+                "Warning: You are using over 90% of the available context window.\n\n" +
+                "Sending more messages may result in incomplete or truncated responses.\n\n" +
+                "It is highly recommended to start a new chat.\n\n" +
+                "Do you want to send this message anyway?"
+            );
+            
+            if (!continueAnyway) {
+                return; // User chose not to send the message
+            }
+        }
+        
+        sendMessage(prompt, mode);
+    };
+
   // --- Document Synthesis Handlers ---
   const handleToggleDocumentSelection = (docId: string) => {
       setSelectedDocIds(prevSelected =>
@@ -308,6 +331,28 @@ const App: React.FC = () => {
       // Clear selection after starting synthesis
       setSelectedDocIds([]);
   };
+  
+  // --- Persona Handlers ---
+  const handleOpenPersonaEditor = (projectId: string) => {
+      const projectToEdit = projects.find(p => p.id === projectId);
+      if (projectToEdit) {
+          setEditingProjectPersona(projectToEdit);
+      }
+  };
+
+  const handleSavePersona = (newSystemPrompt: string) => {
+      if (!editingProjectPersona) return;
+
+      const updatedProject = { ...editingProjectPersona, systemPrompt: newSystemPrompt };
+      const updatedProjects = projects.map(p => 
+          p.id === editingProjectPersona.id ? updatedProject : p
+      );
+      
+      setProjects(updatedProjects);
+      saveProject(updatedProject);
+      setEditingProjectPersona(null); // Close modal
+  };
+
 
   // --- Sidebar Resizing Logic ---
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -349,6 +394,12 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen font-sans overflow-hidden">
       <OnboardingTour run={runTour} onTourComplete={handleTourComplete} />
+      <PersonaModal
+          isOpen={!!editingProjectPersona}
+          project={editingProjectPersona}
+          onClose={() => setEditingProjectPersona(null)}
+          onSave={handleSavePersona}
+      />
       <main className="flex-1 flex flex-col bg-gray-800 min-w-0">
         {isSidebarCollapsed && (
             <button 
@@ -369,7 +420,7 @@ const App: React.FC = () => {
             chat={activeChat}
             messages={messages}
             isLoading={isLoading}
-            onSendMessage={sendMessage}
+            onSendMessage={handleSendMessage}
             attachedDocuments={documents.filter(doc => activeChat?.documentIds?.includes(doc.id))}
             onAttachDocument={handleAttachDocument}
             onDetachDocument={handleDetachDocument}
@@ -406,6 +457,7 @@ const App: React.FC = () => {
         onSelectProject={handleSelectProject}
         onRenameProject={handleRenameProject}
         onDeleteProject={handleDeleteProject}
+        onOpenPersonaEditor={handleOpenPersonaEditor}
         chats={chats}
         documents={documents}
         activeChatId={activeChatId}

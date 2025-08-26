@@ -3,6 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Chat, Message, Source, Document, ResearchMode } from '../types';
 import ReactMarkdown, { type Options as ReactMarkdownOptions } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 // Helper Icon Components defined within the main component file to reduce file count
 
@@ -38,7 +40,7 @@ const EditIcon: React.FC = () => (
 
 const LightbulbIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-300" viewBox="0 0 20 20" fill="currentColor">
-      <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.657a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM9 12a1 1 0 012 0v5a1 1 0 11-2 0v-5zM4.343 5.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM1 11a1 1 0 100 2h1a1 1 0 100-2H1zM15 11a1 1 0 100 2h1a1 1 0 100-2h-1zM7.05 16.95a1 1 0 00-1.414 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707zM12.95 16.95a1 1 0 001.414 1.414l.707.707a1 1 0 00-1.414-1.414l-.707.707z" />
+      <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.657a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM9 12a1 1 0 012 0v5a1 1 0 11-2 0v-5zM4.343 5.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM1 11a1 1 0 100 2h1a1 1 0 100-2H1zM15 11a1 1 0 100 2h1a1 1 0 100-2h-1zM7.05 16.95a1 1 0 00-1.414 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707zM12.95 16.95a1 1 0 001.414 1.414l.707.707a1 1 0 00-1.414-1.414l-.707-.707z" />
     </svg>
 );
 
@@ -377,6 +379,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [researchMode, setResearchMode] = useState<ResearchMode>('deep_research');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -385,6 +390,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+              setShowExportMenu(false);
+          }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -406,12 +421,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
   
   const handleExportChat = () => {
     if (!chat) return;
+    setShowExportMenu(false);
 
     const markdownContent = messages.map(msg => {
         const timestamp = new Date(msg.timestamp).toLocaleString();
         let content = `## ${msg.role === 'user' ? 'User' : 'Model'} _at ${timestamp}_\n\n`;
         
-        // For user messages, use blockquote for better readability
         if (msg.role === 'user') {
             content += msg.text.split('\n').map(line => `> ${line}`).join('\n') + '\n\n';
         } else {
@@ -438,6 +453,133 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
     URL.revokeObjectURL(url);
 };
 
+const handleExportBibliography = () => {
+    if (!chat) return;
+    setShowExportMenu(false);
+
+    const allSources = messages.flatMap(msg => msg.sources || []);
+    if (allSources.length === 0) {
+        alert("No sources found in this chat to export.");
+        return;
+    }
+
+    const uniqueSources = new Map<string, Source>();
+    allSources.forEach(source => {
+        if (source?.uri && !uniqueSources.has(source.uri)) {
+            uniqueSources.set(source.uri, source);
+        }
+    });
+
+    let content = `Bibliography for "${chat.title}"\n\n`;
+    let count = 1;
+    uniqueSources.forEach(source => {
+        content += `${count}. ${source.title}\n   ${source.uri}\n\n`;
+        count++;
+    });
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeTitle = chat.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.href = url;
+    a.download = `${safeTitle || 'chat'}_bibliography.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+const handleExportPdf = async () => {
+    if (!chat) return;
+
+    setShowExportMenu(false);
+    setIsExportingPdf(true);
+    
+    const tempDiv = document.createElement('div');
+    const safeTitle = chat.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'chat-export';
+    
+    try {
+        // Setup temporary element for rendering
+        Object.assign(tempDiv.style, {
+            position: 'absolute',
+            left: '-9999px',
+            top: '0',
+            width: '800px',
+            background: 'white',
+            color: 'black',
+            padding: '40px',
+            fontFamily: 'sans-serif',
+            fontSize: '14px',
+            lineHeight: '1.5',
+        });
+        
+        const escapeHtml = (text: string) => text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        let htmlContent = `<h1 style="font-size: 24px; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;">${escapeHtml(chat.title)}</h1>`;
+
+        messages.forEach(msg => {
+            const role = msg.role.charAt(0).toUpperCase() + msg.role.slice(1);
+            const color = msg.role === 'user' ? '#0056b3' : '#333';
+            const bgColor = msg.role === 'user' ? '#f0f7ff' : '#f5f5f5';
+
+            htmlContent += `
+                <div style="margin-bottom: 20px; padding: 15px; border-radius: 8px; background-color: ${bgColor};">
+                    <strong style="color: ${color}; display: block; margin-bottom: 8px;">${role}</strong>
+                    <div style="white-space: pre-wrap; word-wrap: break-word;">${msg.text.replace(/\n/g, '<br />')}</div>
+                </div>
+            `;
+        });
+
+        tempDiv.innerHTML = htmlContent;
+        document.body.appendChild(tempDiv);
+
+        // Generate PDF from the temporary element
+        const canvas = await html2canvas(tempDiv, {
+            scrollY: -window.scrollY,
+            windowWidth: tempDiv.scrollWidth,
+            windowHeight: tempDiv.scrollHeight,
+            scale: 2, // Increase scale for better quality
+        });
+
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageMargin = 15;
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const contentWidth = pageWidth - pageMargin * 2;
+        const contentHeight = pageHeight - pageMargin * 2;
+
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        const ratio = imgHeight / imgWidth;
+        const pdfImgHeight = contentWidth * ratio;
+
+        let heightLeft = pdfImgHeight;
+        let position = 0;
+
+        pdf.addImage(imgData, 'PNG', pageMargin, pageMargin, contentWidth, pdfImgHeight);
+        heightLeft -= contentHeight;
+
+        while (heightLeft > 0) {
+            position -= contentHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', pageMargin, position + pageMargin, contentWidth, pdfImgHeight);
+            heightLeft -= contentHeight;
+        }
+
+        pdf.save(`${safeTitle}.pdf`);
+
+    } catch (error) {
+        console.error("Failed to export PDF:", error);
+        alert("An error occurred while exporting the PDF.");
+    } finally {
+        if (tempDiv.parentNode) {
+            document.body.removeChild(tempDiv);
+        }
+        setIsExportingPdf(false);
+    }
+};
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -462,8 +604,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
     }
   };
   
+  const TOKEN_WARNING_THRESHOLD = 90;
   const tokenUsagePercentage = (estimatedTokens / tokenLimit) * 100;
-  const isNearTokenLimit = tokenUsagePercentage >= 85;
+  const isNearTokenLimit = tokenUsagePercentage >= TOKEN_WARNING_THRESHOLD;
 
   return (
     <div
@@ -480,14 +623,26 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
       <header className="p-4 border-b border-gray-700">
         <div className="flex justify-between items-center">
             <h2 className="text-lg font-semibold">{chat.title}</h2>
-             <button
-                onClick={handleExportChat}
-                className="p-2 rounded-md text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"
-                aria-label="Export chat as markdown"
-                title="Export chat as markdown"
-             >
-                <ExportIcon />
-            </button>
+             <div className="relative" ref={exportMenuRef}>
+                 <button
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="p-2 rounded-md text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"
+                    aria-label="Export options"
+                    title="Export options"
+                 >
+                    <ExportIcon />
+                </button>
+                {showExportMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 z-20">
+                        <button onClick={handleExportChat} className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700">Export as Markdown</button>
+                        <button onClick={handleExportPdf} disabled={isExportingPdf} className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-wait flex items-center gap-2">
+                          {isExportingPdf && <SpinnerIconMini />}
+                          {isExportingPdf ? 'Exporting...' : 'Export as PDF'}
+                        </button>
+                        <button onClick={handleExportBibliography} className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700">Export Bibliography</button>
+                    </div>
+                )}
+             </div>
         </div>
          {attachedDocuments.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2 items-center">
@@ -510,7 +665,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
           </div>
         )}
       </header>
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div id="chat-content" className="flex-1 overflow-y-auto p-6 space-y-6">
         {messages.map((msg, index) => {
           const isLast = index === messages.length - 1;
           return (
@@ -556,6 +711,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
             </div>
         )}
       <div className="p-4 bg-gray-900/50 border-t border-gray-700">
+        {isNearTokenLimit && (
+            <div className="p-2 mb-3 text-center bg-yellow-900/50 border border-yellow-700/60 rounded-lg" role="alert">
+                <p className="text-sm font-semibold text-yellow-300">
+                    Context Window Warning
+                </p>
+                <p className="text-xs text-yellow-400/80 mt-1">
+                    You've used over {TOKEN_WARNING_THRESHOLD}% of the available tokens. Responses may be incomplete. Please consider starting a new chat.
+                </p>
+            </div>
+        )}
         {researchMode === 'find_documents' && (
             <div className="relative mb-2">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -608,13 +773,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
             <div className="text-xs text-gray-400 flex-1 pr-4">
                 <div className="flex justify-between items-center">
                     <span>Tokens: {estimatedTokens.toLocaleString()} / {tokenLimit.toLocaleString()}</span>
-                    {isNearTokenLimit && <span className="font-semibold text-yellow-400">Context full.</span>}
+                    {isNearTokenLimit && <span className="font-semibold text-yellow-400">High Usage</span>}
                 </div>
                 <div className="w-full bg-gray-600 rounded-full h-1.5 mt-1" title={`${tokenUsagePercentage.toFixed(1)}% used`}>
                     <div
                         className={`h-1.5 rounded-full transition-all duration-300 ${
                             tokenUsagePercentage > 95 ? 'bg-red-500' : 
-                            tokenUsagePercentage > 85 ? 'bg-yellow-500' : 
+                            tokenUsagePercentage > TOKEN_WARNING_THRESHOLD ? 'bg-yellow-500' : 
                             'bg-blue-600'
                         }`}
                         style={{ width: `${tokenUsagePercentage}%` }}

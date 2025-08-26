@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Message, Document } from '../types';
 
@@ -8,6 +7,7 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const model = "gemini-2.5-flash";
+const embeddingModel = "embedding-001";
 
 const fileToGenerativePart = (doc: Document) => {
   return {
@@ -20,10 +20,11 @@ const fileToGenerativePart = (doc: Document) => {
 
 export const generateDeepResearchResponse = async (
     history: Message[],
-    documents: Document[]
+    documents: Document[],
+    customSystemInstruction?: string
 ) => {
     
-    const systemInstruction = `You are a world-class research analyst. Your goal is to provide comprehensive, well-structured, and meticulously sourced answers.
+    const defaultSystemInstruction = `You are a world-class research analyst. Your goal is to provide comprehensive, well-structured, and meticulously sourced answers.
 
 **Your Protocol:**
 1.  **Analyze & Clarify:** First, understand the user's core question. If the query is ambiguous, conversational, or too broad, ask clarifying questions to help the user formulate a specific research topic. If the query is a simple greeting or off-topic, provide a brief, friendly response and gently guide them back to research.
@@ -35,6 +36,9 @@ export const generateDeepResearchResponse = async (
 5.  **Provide References:** At the very end of your response, include a "References" section listing all web sources, corresponding to your inline citations.
 
 **Crucial:** If after your research you cannot find a satisfactory answer, you MUST explicitly state that and explain what you did find or why the information is unavailable. Do not leave the response blank.`;
+
+    // FIX: Corrected typo in variable name.
+    const systemInstruction = customSystemInstruction || defaultSystemInstruction;
     
     // Map app's message format to Gemini's Content[] format
     const conversationHistory: {
@@ -97,6 +101,42 @@ export const findDocumentsOnline = async (history: Message[]) => {
     });
 
     return stream;
+};
+
+export const embedText = async (texts: string[]): Promise<number[][]> => {
+    if (!texts || texts.length === 0) {
+        return [];
+    }
+    // Gemini API has a limit of 100 requests per batch.
+    const batchSize = 100;
+    const allEmbeddings: number[][] = [];
+
+    for (let i = 0; i < texts.length; i += batchSize) {
+        const batchTexts = texts.slice(i, i + batchSize);
+        try {
+            // FIX: The method 'batchEmbedContents' does not exist on 'ai.models' in some SDK versions.
+            // Replaced with concurrent calls to 'embedContent' to achieve a similar outcome.
+            const embeddingPromises = batchTexts.map(text =>
+                ai.models.embedContent({
+                    model: embeddingModel,
+                    // FIX: Corrected property name from 'content' to 'contents'.
+                    contents: {
+                        parts: [{ text }],
+                    },
+                })
+            );
+            const responses = await Promise.all(embeddingPromises);
+            // FIX: Corrected property name from 'embedding' to 'embeddings' to access embedding values.
+            const embeddings = responses.map(res => res.embeddings.values);
+            allEmbeddings.push(...embeddings);
+        } catch (error) {
+            console.error("Error embedding batch:", error);
+            // Fail the whole process if a batch fails.
+            throw new Error("Failed to embed text chunks.");
+        }
+    }
+
+    return allEmbeddings;
 };
 
 export const generateSummary = async (base64Content: string, mimeType: string): Promise<string> => {

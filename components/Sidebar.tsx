@@ -12,6 +12,7 @@ interface SidebarProps {
   onSelectProject: (projectId: string) => void;
   onRenameProject: (projectId: string, newName: string) => void;
   onDeleteProject: (projectId: string) => void;
+  onOpenPersonaEditor: (projectId: string) => void;
 
   // Chats & Docs (for active project)
   chats: Chat[];
@@ -84,7 +85,7 @@ const HelpIcon: React.FC = () => (
   );
 
 
-export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, onRerunTour, style, isCollapsed, onToggleCollapse }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, onOpenPersonaEditor, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, onRerunTour, style, isCollapsed, onToggleCollapse }) => {
   const [draggedDocId, setDraggedDocId] = useState<string | null>(null);
   
   // State for renaming/menu for Projects
@@ -242,8 +243,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
                     )}
                   </div>
                   {menuProjectId === project.id && (
-                    <div ref={projectMenuRef} className="absolute right-2 top-10 z-20 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 w-32">
+                    <div ref={projectMenuRef} className="absolute right-2 top-10 z-20 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 w-36">
                       <button onClick={() => handleProjectRenameStart(project)} className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700">Rename</button>
+                      <button onClick={() => { setMenuProjectId(null); onOpenPersonaEditor(project.id); }} className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700">Set Persona</button>
                       <button onClick={() => handleProjectDelete(project.id)} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700">Delete</button>
                     </div>
                   )}

@@ -17,6 +17,7 @@ export interface Project {
   id: string;
   name: string;
   createdAt: string;
+  systemPrompt?: string;
 }
 
 export interface Chat {
