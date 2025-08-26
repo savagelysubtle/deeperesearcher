@@ -1,4 +1,5 @@
 
+
 import { ChromaClient, type Collection } from 'chromadb';
 import { embedText } from './geminiService';
 import type { Document } from '../types';

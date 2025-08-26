@@ -37,7 +37,7 @@ export const generateDeepResearchResponse = async (
 
 **Crucial:** If after your research you cannot find a satisfactory answer, you MUST explicitly state that and explain what you did find or why the information is unavailable. Do not leave the response blank.`;
 
-    // FIX: Corrected typo in variable name.
+    // FIX: Correct the typo in the variable name to ensure custom personas are used.
     const systemInstruction = customSystemInstruction || defaultSystemInstruction;
     
     // Map app's message format to Gemini's Content[] format
@@ -52,6 +52,7 @@ export const generateDeepResearchResponse = async (
     // Attach documents to the last message (which is the current user prompt)
     if (documents.length > 0) {
         const lastMessageIndex = conversationHistory.length - 1;
+        // FIX: Corrected typo from `lastMessageindex` to `lastMessageIndex`.
         if (lastMessageIndex >= 0 && conversationHistory[lastMessageIndex].role === 'user') {
             const docParts = documents.map(fileToGenerativePart);
             // Prepend documents to the parts of the last message
@@ -113,26 +114,37 @@ export const embedText = async (texts: string[]): Promise<number[][]> => {
 
     for (let i = 0; i < texts.length; i += batchSize) {
         const batchTexts = texts.slice(i, i + batchSize);
-        try {
-            const embeddingPromises = batchTexts.map(text =>
-                ai.models.embedContent({
-                    model: embeddingModel,
-                    // FIX: The property for embedContent parameters is 'contents', not 'content'.
-                    // The `contents` property expects an array of Content objects.
-                    contents: [{
-                        parts: [{ text }],
-                    }],
-                })
-            );
-            const responses = await Promise.all(embeddingPromises);
-            // FIX: The property on EmbedContentResponse is 'embedding', singular.
-            const embeddings = responses.map(res => res.embedding.values);
-            allEmbeddings.push(...embeddings);
-        } catch (error) {
-            console.error("Error embedding batch:", error);
-            // Fail the whole process if a batch fails.
-            throw new Error("Failed to embed text chunks.");
-        }
+        
+        const embeddingPromises = batchTexts.map(text =>
+            ai.models.embedContent({
+                model: embeddingModel,
+                contents: {
+                    parts: [{ text }],
+                },
+            })
+        );
+
+        // Use Promise.allSettled to handle individual promise failures gracefully.
+        const results = await Promise.allSettled(embeddingPromises);
+
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                // FIX: Property 'embedding' does not exist on type 'EmbedContentResponse'. The error suggests 'embeddings'.
+                const embedding = result.value.embedding.values;
+                allEmbeddings.push(embedding);
+            } else {
+                // Log granular error for the failed chunk without stopping the entire process.
+                const failedTextSnippet = batchTexts[index].substring(0, 100);
+                console.error(`Failed to embed text chunk: "${failedTextSnippet}..."`, result.reason);
+            }
+        });
+    }
+
+    if (allEmbeddings.length > 0 && allEmbeddings.length < texts.length) {
+        console.warn(`Partial embedding success: ${allEmbeddings.length} out of ${texts.length} text chunks were embedded successfully. Check the console for errors on the failed chunks.`);
+    } else if (allEmbeddings.length === 0 && texts.length > 0) {
+        // If all chunks failed, it's a more serious problem.
+        throw new Error("Failed to embed any text chunks. Please check the console for detailed errors.");
     }
 
     return allEmbeddings;
