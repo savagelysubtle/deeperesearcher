@@ -35,8 +35,14 @@ const chunkText = (text: string): string[] => {
  * This involves decoding, chunking, embedding, and adding to the project's collection.
  * @param projectId - The ID of the project to add the document to.
  * @param doc - The document object containing metadata and base64 content.
+ * @param onStatusUpdate - A callback to provide real-time feedback to the UI.
  */
-export const addDocumentToCollection = async (projectId: string, doc: Document) => {
+export const addDocumentToCollection = async (
+    projectId: string, 
+    doc: Document,
+    onStatusUpdate: (message: string) => void
+) => {
+  onStatusUpdate("Initializing document processing...");
   const collection = await getOrCreateCollection(projectId);
   
   // Decode the base64 content to plain text.
@@ -46,9 +52,10 @@ export const addDocumentToCollection = async (projectId: string, doc: Document) 
     plainText = atob(doc.content);
   } catch (e) {
     console.error(`Failed to decode base64 content for document ${doc.name}:`, e);
-    return; // Stop processing if content is invalid
+    throw new Error(`Could not read the content of ${doc.name}.`);
   }
   
+  onStatusUpdate("Chunking document...");
   const chunks = chunkText(plainText);
   
   if (chunks.length === 0) {
@@ -57,6 +64,7 @@ export const addDocumentToCollection = async (projectId: string, doc: Document) 
   }
 
   // Generate vector embeddings for each chunk using the Gemini API.
+  onStatusUpdate(`Embedding ${chunks.length} text chunks...`);
   const embeddings = await embedText(chunks);
 
   // Create unique IDs for each chunk to store in the database.
@@ -66,6 +74,7 @@ export const addDocumentToCollection = async (projectId: string, doc: Document) 
   const metadatas = chunks.map(() => ({ documentName: doc.name, documentId: doc.id }));
 
   // Add the chunks, embeddings, and metadata to the collection.
+  onStatusUpdate("Adding to knowledge base...");
   await collection.add({
     ids: ids,
     embeddings: embeddings,
@@ -89,29 +98,34 @@ export const queryCollection = async (
   nResults: number = 5,
   docIdsToFilter?: string[]
 ): Promise<{chunks: string[], metadatas: any[]}> => {
-  const collection = await getOrCreateCollection(projectId);
-  const queryEmbeddingResult = await embedText([queryText]);
+  try {
+    const collection = await getOrCreateCollection(projectId);
+    const queryEmbeddingResult = await embedText([queryText]);
 
-  if (!queryEmbeddingResult || queryEmbeddingResult.length === 0) {
-    console.warn("Could not generate embedding for query text.");
-    return { chunks: [], metadatas: [] };
+    if (!queryEmbeddingResult || queryEmbeddingResult.length === 0) {
+      console.warn("Could not generate embedding for query text.");
+      return { chunks: [], metadatas: [] };
+    }
+    
+    const queryEmbedding = queryEmbeddingResult[0];
+
+    // Build a filter object if document IDs are provided.
+    const whereFilter = (docIdsToFilter && docIdsToFilter.length > 0)
+      ? { documentId: { "$in": docIdsToFilter } } 
+      : undefined;
+
+    const results = await collection.query({
+      queryEmbeddings: [queryEmbedding],
+      nResults: nResults,
+      where: whereFilter, // Apply the filter here
+    });
+
+    const chunks = results.documents?.[0] ?? [];
+    const metadatas = results.metadatas?.[0] ?? [];
+    
+    return { chunks, metadatas };
+  } catch (error) {
+    console.error("Failed to query collection from ChromaDB:", error);
+    return { chunks: [], metadatas: [] }; // Return empty on failure
   }
-  
-  const queryEmbedding = queryEmbeddingResult[0];
-
-  // Build a filter object if document IDs are provided.
-  const whereFilter = (docIdsToFilter && docIdsToFilter.length > 0)
-    ? { documentId: { "$in": docIdsToFilter } } 
-    : undefined;
-
-  const results = await collection.query({
-    queryEmbeddings: [queryEmbedding],
-    nResults: nResults,
-    where: whereFilter, // Apply the filter here
-  });
-
-  const chunks = results.documents?.[0] ?? [];
-  const metadatas = results.metadatas?.[0] ?? [];
-  
-  return { chunks, metadatas };
 };

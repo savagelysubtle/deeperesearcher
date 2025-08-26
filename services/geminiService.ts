@@ -114,19 +114,17 @@ export const embedText = async (texts: string[]): Promise<number[][]> => {
     for (let i = 0; i < texts.length; i += batchSize) {
         const batchTexts = texts.slice(i, i + batchSize);
         try {
-            // FIX: The method 'batchEmbedContents' does not exist on 'ai.models' in some SDK versions.
-            // Replaced with concurrent calls to 'embedContent' to achieve a similar outcome.
             const embeddingPromises = batchTexts.map(text =>
                 ai.models.embedContent({
                     model: embeddingModel,
-                    // FIX: Corrected property name from 'content' to 'contents'.
+                    // FIX: Corrected property name from 'content' to 'contents' as per EmbedContentParameters type.
                     contents: {
                         parts: [{ text }],
                     },
                 })
             );
             const responses = await Promise.all(embeddingPromises);
-            // FIX: Corrected property name from 'embedding' to 'embeddings' to access embedding values.
+            // FIX: Corrected property name from 'embedding' to 'embeddings' as per EmbedContentResponse type.
             const embeddings = responses.map(res => res.embeddings.values);
             allEmbeddings.push(...embeddings);
         } catch (error) {

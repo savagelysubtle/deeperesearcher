@@ -49,8 +49,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess, pro
           };
           saveDocument(newDoc);
           
-          setProcessingMessage('Indexing document for search...');
-          await addDocumentToCollection(projectId, newDoc);
+          // Pass setProcessingMessage to get granular status updates
+          await addDocumentToCollection(projectId, newDoc, setProcessingMessage);
 
           onUploadSuccess();
         } catch (error) {

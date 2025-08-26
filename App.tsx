@@ -9,7 +9,8 @@ import {
   getChats, 
   getDocuments, 
   saveChat, 
-  deleteChat as dbDeleteChat 
+  deleteChat as dbDeleteChat,
+  getAllChats as dbGetAllChats
 } from './services/dbService';
 import type { Chat, Document, Project, ResearchMode } from './types';
 import { useChat } from './hooks/useChat';
@@ -256,6 +257,22 @@ const App: React.FC = () => {
     }
   };
   
+  // --- Chat Organization ---
+  const handleMoveChatToProject = (chatId: string, newProjectId: string) => {
+    const allChats = dbGetAllChats();
+    const chatToMove = allChats.find(c => c.id === chatId);
+
+    if (chatToMove && chatToMove.projectId !== newProjectId) {
+      const updatedChat = { ...chatToMove, projectId: newProjectId };
+      saveChat(updatedChat);
+
+      // If the moved chat was in the currently active project, remove it from the view.
+      if (chatToMove.projectId === activeProjectId) {
+        setChats(prevChats => prevChats.filter(c => c.id !== chatId));
+      }
+    }
+  };
+
   // --- Message Editing ---
   const handleUpdateMessage = (messageId: string, newText: string) => {
     if (!activeChat) return;
@@ -468,6 +485,7 @@ const App: React.FC = () => {
         activeDocumentIds={activeChat?.documentIds || []}
         onRenameChat={handleRenameChat}
         onDeleteChat={handleDeleteChat}
+        onMoveChatToProject={handleMoveChatToProject}
         selectedDocIds={selectedDocIds}
         onToggleDocumentSelection={handleToggleDocumentSelection}
         onDocumentSynthesis={handleDocumentSynthesis}

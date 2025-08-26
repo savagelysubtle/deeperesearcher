@@ -139,13 +139,15 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[], 
         );
         
         // 3. Augment the user's prompt with the retrieved context.
-        const contextString = chunks.length > 0
-          ? chunks.map((chunk, i) => 
-              `--- Context from ${metadatas[i]?.documentName} ---\n${chunk}`
-            ).join('\n\n')
-          : "No relevant context found in the selected documents.";
-
-        const augmentedPrompt = `Based on the following context, please answer the user's question. When you use information from the context, cite the source document name (e.g., [Source: report.pdf]). If the provided context is not sufficient or relevant, use your general knowledge and web search capabilities.\n\n${contextString}\n\nUser Question: ${prompt}`;
+        let augmentedPrompt: string;
+        if (chunks.length > 0) {
+          const contextString = chunks.map((chunk, i) => 
+            `--- Context from ${metadatas[i]?.documentName} ---\n${chunk}`
+          ).join('\n\n');
+          augmentedPrompt = `Based on the following context, please answer the user's question. When you use information from the context, cite the source document name (e.g., [Source: report.pdf]). If the provided context is not sufficient or relevant, use your general knowledge and web search capabilities.\n\n${contextString}\n\nUser Question: ${prompt}`;
+        } else {
+          augmentedPrompt = `No relevant context was found in the user's knowledge base for their question. Please answer the user's question using your general knowledge and web search capabilities. Inform the user that the answer was not found in their provided documents.\n\nUser Question: ${prompt}`;
+        }
 
         // 4. Modify history with the augmented prompt and call the LLM.
         // We pass an empty array for documents because the context is now embedded in the prompt.

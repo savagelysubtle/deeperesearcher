@@ -7,7 +7,7 @@ const DOCUMENTS_KEY = 'gemini_research_documents';
 
 // --- Private Helper Functions ---
 
-const getAllChats = (): Chat[] => {
+export const getAllChats = (): Chat[] => {
   try {
     const chatsJson = localStorage.getItem(CHATS_KEY);
     return chatsJson ? JSON.parse(chatsJson) : [];

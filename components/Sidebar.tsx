@@ -25,6 +25,7 @@ interface SidebarProps {
   activeDocumentIds: string[];
   onRenameChat: (chatId: string, newTitle: string) => void;
   onDeleteChat: (chatId: string) => void;
+  onMoveChatToProject: (chatId: string, newProjectId: string) => void;
   
   // Document Synthesis
   selectedDocIds: string[];
@@ -85,7 +86,7 @@ const HelpIcon: React.FC = () => (
   );
 
 
-export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, onOpenPersonaEditor, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, onRerunTour, style, isCollapsed, onToggleCollapse }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, onOpenPersonaEditor, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, onMoveChatToProject, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, onRerunTour, style, isCollapsed, onToggleCollapse }) => {
   const [draggedDocId, setDraggedDocId] = useState<string | null>(null);
   
   // State for renaming/menu for Projects
@@ -103,6 +104,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
   // State for KB Search and Preview
   const [docFilter, setDocFilter] = useState('');
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
+
+  // State for Chat Drag and Drop
+  const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
+  const [dropTargetProjectId, setDropTargetProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -221,10 +226,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
             </div>
             <ul id="projects-list">
               {projects.map((project) => (
-                <li key={project.id} className="relative group">
+                <li
+                  key={project.id}
+                  className="relative group"
+                  onDragOver={(e) => {
+                    // Check if the dragged item is a chat to provide drop feedback
+                    if (e.dataTransfer.types.includes('application/x-chat-id')) {
+                        e.preventDefault();
+                        setDropTargetProjectId(project.id);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    setDropTargetProjectId(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const chatId = e.dataTransfer.getData('application/x-chat-id');
+                    if (chatId) {
+                        onMoveChatToProject(chatId, project.id);
+                    }
+                    setDropTargetProjectId(null);
+                  }}
+                >
                   <div
                     onClick={() => editingProjectId !== project.id && onSelectProject(project.id)}
                     className={`w-full text-left p-2 rounded-md flex items-center gap-3 transition-colors cursor-pointer ${
+                      dropTargetProjectId === project.id ? 'bg-blue-800 ring-2 ring-blue-500' :
                       activeProjectId === project.id ? 'bg-blue-600' : 'hover:bg-gray-700'
                     } ${editingProjectId === project.id ? 'bg-gray-700 ring-2 ring-blue-500' : ''}`}
                   >
@@ -259,7 +286,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 whitespace-nowrap">Chats</h2>
             <ul>
               {chats.map((chat) => (
-                <li key={chat.id} className="relative group">
+                <li
+                  key={chat.id}
+                  className={`relative group transition-opacity ${draggedChatId === chat.id ? 'opacity-40' : ''}`}
+                  draggable="true"
+                  onDragStart={(e) => {
+                    // Prevent drag from starting on interactive elements
+                    if ((e.target as HTMLElement).closest('button, input, form')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    e.dataTransfer.setData('application/x-chat-id', chat.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDraggedChatId(chat.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedChatId(null);
+                  }}
+                >
                   <div
                     onClick={() => editingChatId !== chat.id && onSelectChat(chat.id)}
                     role="button"
