@@ -35,22 +35,12 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
   const [error, setError] = useState<string | null>(null);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
 
-  const sendMessage = useCallback(async (prompt: string, mode: ResearchMode) => {
+  const handleModelResponse = useCallback(async (history: Message[], prompt: string, mode: ResearchMode) => {
     if (!activeChat) return;
-
-    setSuggestedQuestions([]); // Clear suggestions on new message
-
-    const userMessage: Message = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      text: prompt,
-      timestamp: new Date().toISOString(),
-    };
-
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    
     setIsLoading(true);
     setError(null);
+    setSuggestedQuestions([]);
 
     try {
       if (mode === 'find_documents') {
@@ -65,7 +55,6 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
             if(domain) {
                 strictSiteFilter = `site:${domain.toLowerCase()}`;
                 corePrompt = prompt.replace(siteMatch[0], '').trim();
-                // If the core prompt is now empty (e.g. user only entered a URL), use a generic term.
                 if (!corePrompt) {
                     corePrompt = "latest documents or cases";
                 }
@@ -92,10 +81,8 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
                 const loadingText = `Attempt ${attempt + 1}/${MAX_RETRIES}: Refining search on ${strictSiteFilter || 'the web'}...`;
                 setMessages(prev => prev.map(m => m.id === modelMessage.id ? { ...m, text: loadingText } : m));
             }
-
-            const tempHistory: Message[] = [...newMessages.slice(0, -1), { ...userMessage, text: currentPrompt }];
             
-            const stream = await findDocumentsOnline(tempHistory);
+            const stream = await findDocumentsOnline([{ role: 'user', text: currentPrompt, id: 'temp', timestamp: '' }]);
             let fullResponseJsonString = '';
             for await (const chunk of stream) {
                 fullResponseJsonString += chunk.text;
@@ -107,7 +94,7 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
                     const parsedResults = JSON.parse(jsonMatch[0]);
                     if (Array.isArray(parsedResults) && parsedResults.length > 0) {
                         documentsFound = parsedResults;
-                        break; // Success! Exit the loop.
+                        break; 
                     }
                 }
             } catch (e) {
@@ -138,7 +125,7 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
 
       } else { // 'deep_research' mode
         const attachedDocuments = allDocuments.filter(doc => activeChat.documentIds?.includes(doc.id));
-        const stream = await generateDeepResearchResponse(newMessages, attachedDocuments);
+        const stream = await generateDeepResearchResponse(history, attachedDocuments);
 
         let fullResponseText = '';
         let sources: Source[] = [];
@@ -169,19 +156,19 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
         }
 
         const finalModelMessage = { ...modelMessage, text: fullResponseText, sources };
-        const finalMessages = [...newMessages, finalModelMessage];
-        setMessages(finalMessages);
-
-        const updatedChat = { ...activeChat, messages: finalMessages, title: finalMessages.length > 2 ? activeChat.title : prompt.substring(0, 30) };
-        saveChat(updatedChat);
         
-        // Generate suggested questions after the main response is complete
+        setMessages(prev => {
+            const finalMessages = [...prev.filter(m => m.id !== modelMessage.id), finalModelMessage];
+            const updatedChat = { ...activeChat, messages: finalMessages, title: finalMessages.length > 2 ? activeChat.title : prompt.substring(0, 30) };
+            saveChat(updatedChat);
+            return finalMessages;
+        });
+        
         try {
             const questions = await generateSuggestedQuestions(prompt, fullResponseText);
             setSuggestedQuestions(questions);
         } catch (suggestionError) {
             console.error("Failed to generate suggested questions:", suggestionError);
-            // Fail gracefully, don't show an error to the user for this part.
         }
       }
     } catch (err) {
@@ -197,161 +184,59 @@ export const useChat = (activeChat: Chat | undefined, allDocuments: Document[]) 
     } finally {
       setIsLoading(false);
     }
-  }, [activeChat, messages, allDocuments]);
+  }, [activeChat, allDocuments]);
+
+  const sendMessage = useCallback(async (prompt: string, mode: ResearchMode) => {
+    const userMessage: Message = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      text: prompt,
+      timestamp: new Date().toISOString(),
+      mode,
+    };
+
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    await handleModelResponse(newMessages, prompt, mode);
+
+  }, [messages, handleModelResponse]);
   
   const regenerateResponse = useCallback(async () => {
-    if (!activeChat || isLoading || messages.length < 2) return;
+    if (isLoading || messages.length < 2) return;
 
-    const lastModelMessage = messages[messages.length - 1];
-    const lastUserMessage = messages[messages.length - 2];
+    // FIX: Replaced .findLast() and .findLastIndex() with a reverse loop for broader compatibility.
+    let lastUserMessageIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMessageIndex = i;
+        break;
+      }
+    }
 
-    if (lastModelMessage.role !== 'model' || lastUserMessage.role !== 'user') {
-      console.error("Cannot regenerate: The last two messages are not a user/model pair.");
-      return;
+    if (lastUserMessageIndex === -1) {
+      return; // No user message found to regenerate from.
+    }
+
+    const lastUserMessage = messages[lastUserMessageIndex];
+
+    // Find the last model message *after* the last user message
+    const lastModelMessage = messages.slice(lastUserMessageIndex + 1).find(m => m.role === 'model');
+
+    if (!lastModelMessage) {
+        console.error("Cannot regenerate: Could not find a model response to regenerate.");
+        return;
     }
 
     const prompt = lastUserMessage.text;
-    const mode = lastModelMessage.mode || 'deep_research';
+    const mode = lastUserMessage.mode || 'deep_research';
     
-    // Use the message history *before* the last model response
-    const historyForRegeneration = messages.slice(0, -1);
+    // Set history to everything *before* the last model response that we are regenerating
+    const historyForRegeneration = messages.slice(0, messages.indexOf(lastModelMessage));
     
     setMessages(historyForRegeneration);
-    setIsLoading(true);
-    setError(null);
-    setSuggestedQuestions([]);
+    await handleModelResponse(historyForRegeneration, prompt, mode);
     
-    // Re-run the same logic as sendMessage, but with the truncated history
-    try {
-      if (mode === 'find_documents') {
-        const siteRegex = /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})|site:([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-        const siteMatch = prompt.match(siteRegex);
-        
-        let corePrompt = prompt;
-        let strictSiteFilter: string | null = null;
-
-        if (siteMatch) {
-            const domain = siteMatch[1] || siteMatch[2];
-            if(domain) {
-                strictSiteFilter = `site:${domain.toLowerCase()}`;
-                corePrompt = prompt.replace(siteMatch[0], '').trim();
-                if (!corePrompt) corePrompt = "latest documents or cases";
-            }
-        }
-
-        const MAX_RETRIES = 3;
-        let documentsFound: {title: string, url: string, snippet: string}[] = [];
-        let currentPrompt = strictSiteFilter ? `${corePrompt} ${strictSiteFilter}` : corePrompt;
-        
-        const modelMessage: Message = {
-          id: `msg-${Date.now() + 1}`,
-          role: 'model',
-          text: `Re-searching for documents ${strictSiteFilter ? `on ${strictSiteFilter}`: 'across the web'}...`,
-          timestamp: new Date().toISOString(),
-          sources: [],
-          mode: 'find_documents',
-        };
-        setMessages(prev => [...prev, modelMessage]);
-
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            if (attempt > 0) {
-                currentPrompt = generateRefinedPrompt(corePrompt, strictSiteFilter, attempt);
-                const loadingText = `Attempt ${attempt + 1}/${MAX_RETRIES}: Refining search...`;
-                setMessages(prev => prev.map(m => m.id === modelMessage.id ? { ...m, text: loadingText } : m));
-            }
-            
-            const tempHistory: Message[] = [...historyForRegeneration.slice(0, -1), { ...lastUserMessage, text: currentPrompt }];
-            
-            const stream = await findDocumentsOnline(tempHistory);
-            let fullResponseJsonString = '';
-            for await (const chunk of stream) { fullResponseJsonString += chunk.text; }
-            
-            try {
-                const jsonMatch = fullResponseJsonString.match(/(\[[\s\S]*\])/);
-                if (jsonMatch && jsonMatch[0]) {
-                    const parsedResults = JSON.parse(jsonMatch[0]);
-                    if (Array.isArray(parsedResults) && parsedResults.length > 0) {
-                        documentsFound = parsedResults;
-                        break;
-                    }
-                }
-            } catch (e) { console.error(`Regen attempt ${attempt + 1} failed parsing JSON.`, e); }
-        }
-        
-        let finalResponseText;
-        if (documentsFound.length > 0) {
-            finalResponseText = documentsFound.map((doc, index) => `${index + 1}. [${doc.title}](${doc.url})\n\n   > ${doc.snippet.replace(/\n/g, ' ')}`).join('\n\n');
-        } else {
-            finalResponseText = `After several attempts, I could not find documents for "${corePrompt}". Please try a different query.`;
-        }
-        finalResponseText += "\n\n---\n*You can download these documents using the 'Download' button. If a download fails, it's likely due to web security policies (CORS). In that case, please use the main link to open and save the file manually.*";
-
-        const finalModelMessage = { ...modelMessage, text: finalResponseText };
-        
-        setMessages(prevMessages => {
-            const finalMessages = prevMessages.map(m => m.id === modelMessage.id ? finalModelMessage : m);
-            const updatedChat = { ...activeChat, messages: finalMessages };
-            saveChat(updatedChat);
-            return finalMessages;
-        });
-
-      } else { // 'deep_research' mode
-        const attachedDocuments = allDocuments.filter(doc => activeChat.documentIds?.includes(doc.id));
-        const stream = await generateDeepResearchResponse(historyForRegeneration, attachedDocuments);
-
-        let fullResponseText = '';
-        let sources: Source[] = [];
-        
-        const modelMessage: Message = {
-          id: `msg-${Date.now() + 1}`,
-          role: 'model',
-          text: '...',
-          timestamp: new Date().toISOString(),
-          sources: [],
-          mode,
-        };
-        
-        setMessages(prev => [...prev, modelMessage]);
-
-        for await (const chunk of stream) {
-          fullResponseText += chunk.text;
-          const groundingMetadata = chunk.candidates?.[0]?.groundingMetadata;
-          if (groundingMetadata?.groundingChunks) {
-              const newSources = groundingMetadata.groundingChunks
-                  .map((c: any) => c.web).filter((s: any) => s && s.uri && s.title) as Source[];
-              sources = [...sources, ...newSources.filter(ns => !sources.some(s => s.uri === ns.uri))];
-          }
-          setMessages(prev => prev.map(m => m.id === modelMessage.id ? { ...m, text: fullResponseText, sources } : m));
-        }
-
-        const finalModelMessage = { ...modelMessage, text: fullResponseText, sources };
-        const finalMessages = [...historyForRegeneration, finalModelMessage];
-        setMessages(finalMessages);
-
-        const updatedChat = { ...activeChat, messages: finalMessages };
-        saveChat(updatedChat);
-        
-        try {
-            const questions = await generateSuggestedQuestions(prompt, fullResponseText);
-            setSuggestedQuestions(questions);
-        } catch (suggestionError) {
-            console.error("Failed to generate suggested questions during regen:", suggestionError);
-        }
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      setError(errorMessage);
-      const errorMsg: Message = {
-        id: `err-${Date.now()}`,
-        role: 'model',
-        text: `Error during regeneration: ${errorMessage}`,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, errorMsg]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeChat, messages, allDocuments, isLoading]);
+  }, [messages, isLoading, handleModelResponse]);
 
   return { messages, setMessages, sendMessage, isLoading, error, suggestedQuestions, regenerateResponse };
 };

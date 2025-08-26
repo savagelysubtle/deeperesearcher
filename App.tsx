@@ -332,10 +332,17 @@ const App: React.FC = () => {
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
-  // --- Onboarding Tour Handler ---
+  // --- Onboarding Tour Handlers ---
   const handleTourComplete = () => {
     localStorage.setItem('onboardingComplete', 'true');
     setRunTour(false);
+  };
+
+  const handleRerunTour = () => {
+    localStorage.removeItem('onboardingComplete');
+    // Reset to false first to ensure Joyride remounts if it's in a weird state
+    setRunTour(false); 
+    setTimeout(() => setRunTour(true), 100);
   };
 
 
@@ -412,6 +419,7 @@ const App: React.FC = () => {
         selectedDocIds={selectedDocIds}
         onToggleDocumentSelection={handleToggleDocumentSelection}
         onDocumentSynthesis={handleDocumentSynthesis}
+        onRerunTour={handleRerunTour}
       />
     </div>
   );

@@ -256,6 +256,13 @@ const MessageItem: React.FC<{
 
     useEffect(() => {
         if (isEditing && textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.select();
+        }
+    }, [isEditing]);
+
+    useEffect(() => {
+        if (isEditing && textareaRef.current) {
             textareaRef.current.style.height = 'auto';
             textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
         }

@@ -30,6 +30,9 @@ interface SidebarProps {
   onToggleDocumentSelection: (docId: string) => void;
   onDocumentSynthesis: () => void;
 
+  // Onboarding
+  onRerunTour: () => void;
+
   // Style
   style?: React.CSSProperties;
   isCollapsed: boolean;
@@ -74,8 +77,14 @@ const CollapseIcon: React.FC = () => (
     </svg>
 );
 
+const HelpIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+    </svg>
+  );
 
-export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, style, isCollapsed, onToggleCollapse }) => {
+
+export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onNewProject, onSelectProject, onRenameProject, onDeleteProject, chats, documents, activeChatId, onNewChat, onSelectChat, onDocumentsUpdated, onAttachDocument, activeDocumentIds, onRenameChat, onDeleteChat, selectedDocIds, onToggleDocumentSelection, onDocumentSynthesis, onRerunTour, style, isCollapsed, onToggleCollapse }) => {
   const [draggedDocId, setDraggedDocId] = useState<string | null>(null);
   
   // State for renaming/menu for Projects
@@ -177,13 +186,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
                   onClick={onNewChat}
                   className="p-2 rounded-md hover:bg-gray-700 transition-colors"
                   aria-label="New Chat"
+                  title="New Chat"
               >
                   <PlusIcon />
+              </button>
+               <button
+                  onClick={onRerunTour}
+                  className="p-2 rounded-md hover:bg-gray-700 transition-colors"
+                  aria-label="Help / Rerun Onboarding Tour"
+                  title="Rerun Onboarding Tour"
+              >
+                  <HelpIcon />
               </button>
               <button
                   onClick={onToggleCollapse}
                   className="p-2 rounded-md hover:bg-gray-700 transition-colors"
                   aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
               >
                   <CollapseIcon />
               </button>
@@ -312,6 +331,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onN
                 >
                   <input 
                     type="checkbox"
+                    draggable="false"
                     checked={selectedDocIds.includes(doc.id)}
                     onChange={() => onToggleDocumentSelection(doc.id)}
                     className="w-4 h-4 bg-gray-600 border-gray-500 rounded text-blue-500 focus:ring-blue-500 flex-shrink-0"
