@@ -35,6 +35,7 @@ export interface Document {
   mimeType: string;
   createdAt: string;
   projectId: string;
+  summary?: string;
 }
 
 export type ResearchMode = 'deep_research' | 'find_documents';

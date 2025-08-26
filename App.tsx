@@ -13,6 +13,7 @@ import {
 } from './services/dbService';
 import type { Chat, Document, Project } from './types';
 import { useChat } from './hooks/useChat';
+import OnboardingTour from './components/OnboardingTour';
 
 const SIDEBAR_MIN_WIDTH = 280;
 const SIDEBAR_MAX_WIDTH_PERCENT = 0.4;
@@ -39,6 +40,9 @@ const App: React.FC = () => {
   // Document synthesis state
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+
+  // Onboarding tour state
+  const [runTour, setRunTour] = useState(false);
 
 
   // --- Project Management ---
@@ -118,6 +122,12 @@ const App: React.FC = () => {
       saveProject(defaultProject);
       setActiveProjectId(defaultProject.id);
     }
+    
+    // Check if onboarding tour should run
+    const onboardingComplete = localStorage.getItem('onboardingComplete');
+    if (!onboardingComplete) {
+      setTimeout(() => setRunTour(true), 500);
+    }
   }, []);
 
   useEffect(() => {
@@ -149,6 +159,7 @@ const App: React.FC = () => {
     sendMessage,
     isLoading,
     suggestedQuestions,
+    regenerateResponse,
   } = useChat(activeChat, documents);
   
   // Effect to programmatically send a prompt to a newly created chat for features like Document Synthesis
@@ -242,6 +253,27 @@ const App: React.FC = () => {
     }
   };
   
+  // --- Message Editing ---
+  const handleUpdateMessage = (messageId: string, newText: string) => {
+    if (!activeChat) return;
+
+    const updatedMessages = activeChat.messages.map(msg => 
+      msg.id === messageId ? { ...msg, text: newText } : msg
+    );
+    
+    const updatedChat = { ...activeChat, messages: updatedMessages };
+    
+    // Update the local component state immediately for responsiveness
+    setMessages(updatedMessages);
+    
+    // Update the state for the entire chats array
+    const updatedChats = chats.map(c => c.id === activeChatId ? updatedChat : c);
+    setChats(updatedChats);
+    
+    // Persist the changes
+    saveChat(updatedChat);
+  };
+
   // --- Document Synthesis Handlers ---
   const handleToggleDocumentSelection = (docId: string) => {
       setSelectedDocIds(prevSelected =>
@@ -300,8 +332,16 @@ const App: React.FC = () => {
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
+  // --- Onboarding Tour Handler ---
+  const handleTourComplete = () => {
+    localStorage.setItem('onboardingComplete', 'true');
+    setRunTour(false);
+  };
+
+
   return (
     <div className="flex h-screen font-sans overflow-hidden">
+      <OnboardingTour run={runTour} onTourComplete={handleTourComplete} />
       <main className="flex-1 flex flex-col bg-gray-800 min-w-0">
         {isSidebarCollapsed && (
             <button 
@@ -330,6 +370,8 @@ const App: React.FC = () => {
             estimatedTokens={estimatedTokens}
             tokenLimit={CONTEXT_WINDOW_LIMIT_TOKENS}
             suggestedQuestions={suggestedQuestions}
+            onRegenerateResponse={regenerateResponse}
+            onUpdateMessage={handleUpdateMessage}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-400">

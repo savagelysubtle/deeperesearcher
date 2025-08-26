@@ -24,9 +24,21 @@ const ThumbsDownIcon: React.FC = () => (
     </svg>
 );
 
+const RegenerateIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+    </svg>
+);
+
+const EditIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+    </svg>
+);
+
 const LightbulbIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-300" viewBox="0 0 20 20" fill="currentColor">
-      <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.657a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM9 12a1 1 0 012 0v5a1 1 0 11-2 0v-5zM4.343 5.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM1 11a1 1 0 100 2h1a1 1 0 100-2H1zM15 11a1 1 0 100 2h1a1 1 0 100-2h-1zM7.05 16.95a1 1 0 00-1.414 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707zM12.95 16.95a1 1 0 001.414 1.414l.707-.707a1 1 0 00-1.414-1.414l-.707.707z" />
+      <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.657a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM9 12a1 1 0 012 0v5a1 1 0 11-2 0v-5zM4.343 5.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM1 11a1 1 0 100 2h1a1 1 0 100-2H1zM15 11a1 1 0 100 2h1a1 1 0 100-2h-1zM7.05 16.95a1 1 0 00-1.414 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707zM12.95 16.95a1 1 0 001.414 1.414l.707.707a1 1 0 00-1.414-1.414l-.707.707z" />
     </svg>
 );
 
@@ -227,9 +239,38 @@ const markdownComponents: ReactMarkdownOptions['components'] = {
 };
 
 
-const MessageItem: React.FC<{ message: Message; onFeedback: (feedback: 'up' | 'down') => void; }> = ({ message, onFeedback }) => {
+const MessageItem: React.FC<{ 
+    message: Message;
+    onFeedback: (feedback: 'up' | 'down') => void;
+    isLastMessage: boolean;
+    isLoading: boolean;
+    onRegenerate: () => void;
+    onUpdateMessage: (messageId: string, newText: string) => void;
+}> = ({ message, onFeedback, isLastMessage, isLoading, onRegenerate, onUpdateMessage }) => {
     const isUser = message.role === 'user';
     const isFindDocumentsResponse = message.role === 'model' && message.mode === 'find_documents';
+    
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedText, setEditedText] = useState(message.text);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        if (isEditing && textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [isEditing, editedText]);
+
+    const handleSave = () => {
+        onUpdateMessage(message.id, editedText);
+        setIsEditing(false);
+    };
+
+    const handleCancel = () => {
+        setIsEditing(false);
+        setEditedText(message.text);
+    };
+
 
     const componentsWithDownload: ReactMarkdownOptions['components'] = {
         ...markdownComponents,
@@ -251,14 +292,34 @@ const MessageItem: React.FC<{ message: Message; onFeedback: (feedback: 'up' | 'd
     return (
         <div className={`flex items-start gap-4 ${isUser ? 'justify-end' : ''}`}>
              {!isUser && <BotIcon />}
-            <div className={`max-w-2xl p-4 rounded-xl ${isUser ? 'bg-blue-600' : 'bg-gray-700'}`}>
+            <div className={`max-w-2xl w-full p-4 rounded-xl ${isUser ? 'bg-blue-600' : 'bg-gray-700'}`}>
                 {isUser ? (
                     <p className="whitespace-pre-wrap">{message.text}</p>
                 ) : (
                     <>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={isFindDocumentsResponse ? componentsWithDownload : markdownComponents}>
-                            {message.text}
-                        </ReactMarkdown>
+                        {isEditing ? (
+                            <div>
+                                <textarea
+                                    ref={textareaRef}
+                                    value={editedText}
+                                    onChange={(e) => setEditedText(e.target.value)}
+                                    className="w-full bg-gray-800 rounded-md p-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                    rows={1}
+                                />
+                                <div className="mt-2 flex items-center gap-2">
+                                    <button onClick={handleSave} className="px-3 py-1 bg-blue-600 text-white font-semibold rounded-md text-sm hover:bg-blue-500">
+                                        Save
+                                    </button>
+                                    <button onClick={handleCancel} className="px-3 py-1 bg-gray-600 text-white font-semibold rounded-md text-sm hover:bg-gray-500">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={isFindDocumentsResponse ? componentsWithDownload : markdownComponents}>
+                                {message.text}
+                            </ReactMarkdown>
+                        )}
                         <SourceList sources={message.sources || []} />
                         <div className="mt-3 pt-2 border-t border-gray-600/50 flex items-center gap-2">
                             <button onClick={() => onFeedback('up')} className="p-1 rounded-md text-gray-400 hover:bg-gray-600 hover:text-white transition-colors" aria-label="Good response">
@@ -267,6 +328,14 @@ const MessageItem: React.FC<{ message: Message; onFeedback: (feedback: 'up' | 'd
                              <button onClick={() => onFeedback('down')} className="p-1 rounded-md text-gray-400 hover:bg-gray-600 hover:text-white transition-colors" aria-label="Bad response">
                                 <ThumbsDownIcon />
                             </button>
+                            <button onClick={() => setIsEditing(true)} className="p-1 rounded-md text-gray-400 hover:bg-gray-600 hover:text-white transition-colors" aria-label="Edit response">
+                                <EditIcon />
+                            </button>
+                             {isLastMessage && !isLoading && (
+                                <button onClick={onRegenerate} className="p-1 rounded-md text-gray-400 hover:bg-gray-600 hover:text-white transition-colors" aria-label="Regenerate response">
+                                    <RegenerateIcon />
+                                </button>
+                             )}
                         </div>
                     </>
                 )}
@@ -291,9 +360,11 @@ interface ChatWindowProps {
   estimatedTokens: number;
   tokenLimit: number;
   suggestedQuestions: string[];
+  onRegenerateResponse: () => void;
+  onUpdateMessage: (messageId: string, newText: string) => void;
 }
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoading, onSendMessage, attachedDocuments, onAttachDocument, onDetachDocument, onNewChat, estimatedTokens, tokenLimit, suggestedQuestions }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoading, onSendMessage, attachedDocuments, onAttachDocument, onDetachDocument, onNewChat, estimatedTokens, tokenLimit, suggestedQuestions, onRegenerateResponse, onUpdateMessage }) => {
   const [input, setInput] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -384,7 +455,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
     }
   };
   
-  const isNearTokenLimit = estimatedTokens / tokenLimit >= 0.85;
+  const tokenUsagePercentage = (estimatedTokens / tokenLimit) * 100;
+  const isNearTokenLimit = tokenUsagePercentage >= 85;
 
   return (
     <div
@@ -432,9 +504,20 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
         )}
       </header>
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {messages.map((msg) => (
-          <MessageItem key={msg.id} message={msg} onFeedback={(feedback) => console.log(`Feedback received: '${feedback}' for message ID ${msg.id}`)} />
-        ))}
+        {messages.map((msg, index) => {
+          const isLast = index === messages.length - 1;
+          return (
+            <MessageItem 
+              key={msg.id} 
+              message={msg} 
+              onFeedback={(feedback) => console.log(`Feedback received: '${feedback}' for message ID ${msg.id}`)}
+              isLastMessage={isLast}
+              isLoading={isLoading}
+              onRegenerate={onRegenerateResponse}
+              onUpdateMessage={onUpdateMessage}
+            />
+          )
+        })}
         {isLoading && (
             <div className="flex items-start gap-4">
                 <BotIcon />
@@ -484,6 +567,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
         )}
         <form onSubmit={handleSubmit} className="relative">
           <textarea
+            id="chat-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -514,9 +598,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
           </button>
         </form>
         <div className="mt-2 flex justify-between items-center">
-            <div className="text-xs text-gray-400">
-                <span>Estimated Tokens: {estimatedTokens.toLocaleString()} / {tokenLimit.toLocaleString()}</span>
-                 {isNearTokenLimit && <span className="ml-2 font-semibold text-yellow-400">Context getting full.</span>}
+            <div className="text-xs text-gray-400 flex-1 pr-4">
+                <div className="flex justify-between items-center">
+                    <span>Tokens: {estimatedTokens.toLocaleString()} / {tokenLimit.toLocaleString()}</span>
+                    {isNearTokenLimit && <span className="font-semibold text-yellow-400">Context full.</span>}
+                </div>
+                <div className="w-full bg-gray-600 rounded-full h-1.5 mt-1" title={`${tokenUsagePercentage.toFixed(1)}% used`}>
+                    <div
+                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                            tokenUsagePercentage > 95 ? 'bg-red-500' : 
+                            tokenUsagePercentage > 85 ? 'bg-yellow-500' : 
+                            'bg-blue-600'
+                        }`}
+                        style={{ width: `${tokenUsagePercentage}%` }}
+                    ></div>
+                </div>
             </div>
             <div className="flex items-center gap-2">
                  {isNearTokenLimit && (
@@ -527,7 +623,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, messages, isLoadin
                         Start New Chat
                     </button>
                 )}
-                <div className="bg-gray-700 rounded-lg p-1 flex space-x-1">
+                <div id="research-mode-toggle" className="bg-gray-700 rounded-lg p-1 flex space-x-1">
                     <button
                         onClick={() => setResearchMode('deep_research')}
                         className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${

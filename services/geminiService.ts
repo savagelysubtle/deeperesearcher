@@ -99,6 +99,32 @@ export const findDocumentsOnline = async (history: Message[]) => {
     return stream;
 };
 
+export const generateSummary = async (base64Content: string, mimeType: string): Promise<string> => {
+    const prompt = "Please provide a concise, 3-sentence summary of the attached document. Focus on the key topics and conclusions.";
+
+    try {
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: {
+                parts: [
+                    { text: prompt },
+                    {
+                        inlineData: {
+                            mimeType: mimeType,
+                            data: base64Content,
+                        }
+                    }
+                ]
+            }
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating summary:", error);
+        return "Could not generate summary for this document."; // Return a fallback string
+    }
+};
+
 export const generateSuggestedQuestions = async (userQuery: string, modelResponse: string): Promise<string[]> => {
     const prompt = `Based on the following user query and model response, generate a JSON array of three distinct and insightful follow-up questions the user could ask next. The questions should encourage deeper exploration of the topic. The response must be only a valid JSON array of strings, with no other text or markdown formatting.
 
